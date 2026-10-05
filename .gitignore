@@ -2,14 +2,12 @@ venv/*
 .venv/
 *__pycache__/
 TODO.md
-# Generated runs are ignored; the small example datasets are tracked.
-data/*
-!data/README.md
-!data/demo_small/
-!data/cdt_example/
+# Generated runs and example data (make cdt-data) are not tracked.
+data/
+site/
+node_modules/
 .idea
 .pytest_cache
-.github/
 .vscode/
 outputs/*
 results/*

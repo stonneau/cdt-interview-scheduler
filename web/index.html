@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CDT Interview Scheduler</title>
+<meta name="description" content="Schedule and minimally-disruptively reschedule interview panels, entirely in your browser.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>Interview Scheduler</h1>
+    <p class="tag">Panels, availability, forbidden pairs — and <em>minimally-disruptive</em> rescheduling when things change.</p>
+    <p class="privacy">🔒 Your files stay on your computer. Everything runs in this browser tab; nothing is uploaded.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="engine" class="engine" role="status"><span class="dot"></span><span id="engine-msg">Starting the solver…</span></div>
+
+  <section class="card" id="step-data">
+    <h2><span class="n">1</span> Load availability</h2>
+    <div class="grid2">
+      <label class="file">Applicants availability (CSV)
+        <input type="file" id="f-app" accept=".csv,text/csv"></label>
+      <label class="file">Staff availability (CSV)
+        <input type="file" id="f-staff" accept=".csv,text/csv"></label>
+      <label class="file">Forbidden pairs (CSV, optional)
+        <input type="file" id="f-forb" accept=".csv,text/csv"></label>
+      <label>Forbidden pairs, inline (optional)
+        <input type="text" id="forb-inline" placeholder="Alice:Prof X, Bob:Prof Y"></label>
+      <label>Lead staff IDs
+        <input type="text" id="lead-ids" placeholder="auto: names starting “lead” · or type none"></label>
+    </div>
+    <div class="row">
+      <button id="btn-load" class="primary" disabled>Load files</button>
+      <button id="btn-example" disabled>Try with example data</button>
+      <a class="help" href="#help">File format?</a>
+    </div>
+    <div id="load-msg"></div>
+  </section>
+
+  <section class="card" id="step-solve" hidden>
+    <h2><span class="n">2</span> Settings and first schedule</h2>
+    <div class="grid4">
+      <label>Panel size (min)<input type="number" id="p-min" value="2" min="1" max="10"></label>
+      <label>Panel size (max)<input type="number" id="p-max" value="2" min="1" max="10"></label>
+      <label>Workload fairness
+        <select id="p-fair">
+          <option value="min_dev" selected>Even out (min deviation)</option>
+          <option value="min_max">Cap the busiest person</option>
+          <option value="none">Ignore</option>
+        </select></label>
+      <label>Time limit (s)<input type="number" id="p-time" value="30" min="1" max="600"></label>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="p-par"> Parallel interview rooms (online interviews)</label>
+      <label class="inline">up to <input type="number" id="p-rooms" value="2" min="2" max="6" class="tiny"> at once</label>
+    </div>
+    <div class="row"><button id="btn-solve" class="primary">Solve initial schedule</button></div>
+  </section>
+
+  <section id="results" hidden></section>
+
+  <section class="card" id="step-change" hidden>
+    <h2><span class="n">3</span> Something changed? Reschedule with minimal disruption</h2>
+    <div class="grid3">
+      <label>Type of change
+        <select id="ch-type"></select></label>
+      <div id="ch-fields" class="fields"></div>
+      <div class="alignend"><button id="btn-stage">Stage this change</button></div>
+    </div>
+    <div id="staged"></div>
+    <div class="grid3 opts">
+      <label>Strategy
+        <select id="r-strat">
+          <option value="local_repair" selected>Local repair — fewest moves (default)</option>
+          <option value="change_penalty">Change penalty — more flexible</option>
+          <option value="variance_minimizing">Variance minimising — fairer workload</option>
+          <option value="slack_based">Slack based — keeps spare slots</option>
+          <option value="full">From scratch — ignores published schedule</option>
+        </select></label>
+      <label>Freeze interviews on or before
+        <select id="r-freeze"><option value="">— nothing frozen —</option></select></label>
+      <div class="alignend"><button id="btn-resched" class="primary" disabled>Reschedule</button></div>
+    </div>
+    <div id="resched-fail"></div>
+    <p class="note">Frozen interviews (already held or confirmed) keep their slot and panel; they still count towards each person’s workload.</p>
+  </section>
+
+  <section class="card prose" id="help">
+    <h2>File format &amp; rules</h2>
+    <ul>
+      <li><b>Availability CSVs</b> (Doodle export): row 1 = dates, row 2 = slot start times (<code>9</code>, <code>9.45</code>, <code>10.3</code> — the part after the dot is <i>minutes</i> — or <code>09:00-09:45</code>), then one row per person. Only the cell value <b>Yes</b> means available; <i>No</i>, <i>If needed</i> and blanks mean unavailable. Both files must use the same dates and slot labels.</li>
+      <li><b>Leads</b>: staff whose name starts with <code>lead</code> (or those listed above). Every panel gets at least one lead.</li>
+      <li><b>Forbidden pairs</b>: a supervisor never sits on their own applicant’s panel. CSV with <code>candidate_id,staff_id</code> columns, or the interview sheet format (<code>Surname, First name(s), Potential Supervisors</code>), or inline <code>applicant:staff</code>.</li>
+      <li><b>Hard rules</b>: one interview per applicant, one applicant per slot (per room), everyone only when available, panel size within the chosen bounds, no staff member in two rooms at once. If they cannot all be met the answer is <i>infeasible</i> — with an explanation, never a schedule that breaks a rule.</li>
+      <li><b>Soft goals</b>: change as few applicants and panellists as possible when rescheduling, then spread the interviews evenly across staff.</li>
+    </ul>
+    <p class="note">Solved with HiGHS (mixed-integer programming) running in WebAssembly. Based on the 2025 UG4 project by Guillermo Perfect, University of Edinburgh — <a href="https://github.com/stonneau/cdt-interview-scheduler">source code</a>.</p>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

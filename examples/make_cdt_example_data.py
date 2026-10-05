@@ -4,7 +4,8 @@ The real CDT availability polls contain personal data and are therefore not
 distributed.  This script produces files with the *same format and scale*
 as the 2026 CDT admissions cycle described in the UG4 report (33 candidates,
 16 staff of which 3 leads, 10 slots/day, ~160 slots), so that the full
-workflow can be tried end to end.
+workflow can be tried end to end.  The generator itself lives in
+``webapi/example.py`` (the web app uses it too, in memory).
 
 Usage::
 
@@ -12,42 +13,12 @@ Usage::
 """
 
 import argparse
-import csv
-import random
-from datetime import date, timedelta
+import sys
 from pathlib import Path
 
-# Slot labels as exported by the Doodle poll: "H" or "H.MM" (hour, then minutes).
-# Afternoon hours are written 1, 2, 3, 4 (not 13, 14, ...).  Both CSVs must use
-# the same convention, which is all the loader needs.
-SLOT_LABELS = ["9", "9.45", "10.3", "11.15", "1", "1.45", "2.3", "3.15", "4", "4.45"]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-def interview_days(start: date, n_days: int):
-    """Return the next ``n_days`` weekdays starting from ``start``."""
-    days, d = [], start
-    while len(days) < n_days:
-        if d.weekday() < 5:
-            days.append(d)
-        d += timedelta(days=1)
-    return days
-
-
-def write_availability(path, names, days, p_yes, rng, bad_day_prob=0.0):
-    """Write a two-header-row availability CSV (dates row, slot-label row)."""
-    with open(path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow([""] + [d.isoformat() for d in days for _ in SLOT_LABELS])
-        w.writerow([""] + SLOT_LABELS * len(days))
-        for name in names:
-            row = [name]
-            for _ in days:
-                # Correlated "bad day": most slots of that day become unavailable.
-                bad = rng.random() < bad_day_prob
-                for _ in SLOT_LABELS:
-                    p = 0.1 if bad else p_yes
-                    row.append("Yes" if rng.random() < p else "No")
-            w.writerow(row)
+from webapi.example import make_example  # noqa: E402
 
 
 def main():
@@ -60,29 +31,14 @@ def main():
     ap.add_argument("--days", type=int, default=16)
     args = ap.parse_args()
 
-    rng = random.Random(args.seed)
+    texts = make_example(args.seed, args.candidates, args.staff, args.leads, args.days)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    days = interview_days(date(2026, 3, 11), args.days)
-
-    candidates = [f"Candidate-{i:02d}" for i in range(1, args.candidates + 1)]
-    # Leads MUST be named "lead..." -- that prefix is how the loader detects them.
-    leads = [f"lead{i}" for i in range(1, args.leads + 1)]
-    others = [f"Staff-{i:02d}" for i in range(1, args.staff - args.leads + 1)]
-
-    write_availability(out / "applicants_availabilities.csv", candidates, days, 0.45, rng)
-    write_availability(out / "staff_availabilities.csv", leads + others, days, 0.55, rng,
-                       bad_day_prob=0.2)
-
-    # Supervisor / candidate conflicts: that supervisor must not sit on the panel.
-    with open(out / "forbidden_pairs.csv", "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["candidate_id", "staff_id"])
-        for c in rng.sample(candidates, 8):
-            w.writerow([c, rng.choice(others)])
-    print(f"Wrote example data to {out}/ "
-          f"({len(candidates)} candidates, {len(leads) + len(others)} staff, "
-          f"{len(days) * len(SLOT_LABELS)} slots)")
+    (out / "applicants_availabilities.csv").write_text(texts["applicants"], newline="")
+    (out / "staff_availabilities.csv").write_text(texts["staff"], newline="")
+    (out / "forbidden_pairs.csv").write_text(texts["forbidden"], newline="")
+    print(f"Wrote example data to {out}/ ({args.candidates} candidates, {args.staff} staff, "
+          f"{args.days * 10} slots)")
 
 
 if __name__ == "__main__":

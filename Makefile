@@ -3,7 +3,7 @@ VENV   ?= .venv
 PYTHON ?= python3
 PY     := $(VENV)/bin/python
 
-.PHONY: install test demo web cdt-data cdt bench clean
+.PHONY: install test demo web cdt-data cdt bench site serve-site clean
 
 install:  ## Create .venv and install dependencies
 	$(PYTHON) -m venv $(VENV)
@@ -22,11 +22,17 @@ web:  ## Start the Streamlit web app on http://localhost:8501
 cdt-data:  ## Generate the anonymised CDT-scale example data in data/cdt_example
 	$(PY) examples/make_cdt_example_data.py
 
-cdt:  ## Run the CDT walkthrough (initial schedule + 3 disruptions)
+cdt: cdt-data  ## Run the CDT walkthrough (initial schedule + 3 disruptions)
 	$(PY) examples/cdt_walkthrough.py
 
-bench:  ## Compare the CP-SAT and MIP backends at CDT scale
+bench: cdt-data  ## Compare the CP-SAT and MIP backends at CDT scale
 	$(PY) examples/benchmark_backends.py
+
+site:  ## Build the static browser app into site/
+	$(PY) web/build.py
+
+serve-site: site  ## Build and serve the browser app on http://localhost:8000
+	$(PY) -m http.server -d site 8000
 
 clean:  ## Remove generated runs and caches
 	rm -rf data/run-* data/demo-* data/sweeps .pytest_cache

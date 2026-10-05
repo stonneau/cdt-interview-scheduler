@@ -58,6 +58,7 @@ def _solve_model(data_store: Dict[str, Any], params: Dict[str, Any], use_prev: b
     prev_staff_assignment = ds.get("prev_staff_assignment") if use_prev else None
 
     min_staff_per_slot = params.get("min_staff_per_slot", 2)
+    max_staff_per_slot = params.get("max_staff_per_slot", 2)
     fairness = params.get("fairness", "min_max")
     staff_change_penalty_weight = params.get("staff_change_penalty_weight", 1)
     candidate_change_penalty_weight = params.get("candidate_change_penalty_weight", 5)
@@ -78,6 +79,7 @@ def _solve_model(data_store: Dict[str, Any], params: Dict[str, Any], use_prev: b
             prev_schedule=prev_schedule,
             prev_staff_assignment=prev_staff_assignment,
             min_staff_per_slot=min_staff_per_slot,
+            max_staff_per_slot=max_staff_per_slot,
             fairness=fairness,
             staff_change_penalty_weight=staff_change_penalty_weight,
             penalty_scale=penalty_scale,

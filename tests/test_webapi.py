@@ -129,3 +129,51 @@ def test_applicant_without_availability_is_flagged():
     lines[2] = ",".join([cells[0]] + ["No"] * (len(cells) - 1))
     out = call("load", applicants="\n".join(lines) + "\n", staff=texts["staff"])
     assert out["ok"] and any(cells[0] in w for w in out["data"]["warnings"])
+
+
+REAL_STYLE_APPLICANTS = (
+    ",2026-03-11,2026-03-11,2026-03-11\n,9,9.45,10.30\n"
+    "Ann Lee,Yes,If needed,\nBo Chan,No,Yes,Yes\nCy Dunn,Yes,Yes,No\nBo Chan,Yes,Yes,Yes\n")
+REAL_STYLE_STAFF = (
+    ",2026-03-11,2026-03-11,2026-03-11\n,9,9.45,10.3\n"
+    "Prof A,Yes,Yes,Yes\nProf B,Yes,If needed,Yes\nProf C,No,Yes,Yes\nProf B,Yes,Yes,Yes\n")
+
+
+def test_duplicate_names_are_resolved_not_rejected():
+    for policy, expect_bo in (("last", [1, 1, 1]), ("first", [0, 1, 1]), ("both", [0, 1, 1])):
+        out = call("load", applicants=REAL_STYLE_APPLICANTS, staff=REAL_STYLE_STAFF, duplicates=policy,
+                   lead_ids="Prof A")
+        assert out["ok"], out
+        d = out["data"]
+        assert len(d["info"]["candidates"]) == 3 and len(d["info"]["staff"]) == 3
+        assert any("more than once" in w and "Bo Chan" in w for w in d["warnings"])
+        slots = d["info"]["slots"]
+        bo = [api.STATE.ds["avail"]["Bo Chan"][t] for t in slots]
+        assert bo == expect_bo, (policy, bo)
+
+
+def test_if_needed_option():
+    off = call("load", applicants=REAL_STYLE_APPLICANTS, staff=REAL_STYLE_STAFF, lead_ids="Prof A")["data"]
+    ann_off = [api.STATE.ds["avail"]["Ann Lee"][t] for t in off["info"]["slots"]]
+    on = call("load", applicants=REAL_STYLE_APPLICANTS, staff=REAL_STYLE_STAFF, lead_ids="Prof A",
+              if_needed="available")["data"]
+    ann_on = [api.STATE.ds["avail"]["Ann Lee"][t] for t in on["info"]["slots"]]
+    assert ann_off == [1, 0, 0] and ann_on == [1, 1, 0]
+    assert any("If needed" in w for w in off["warnings"])
+
+
+def test_lead_picker_changes_required_staff():
+    call("load", applicants=REAL_STYLE_APPLICANTS, staff=REAL_STYLE_STAFF, if_needed="available")
+    assert api.STATE.ds["lead_ids"] == []                      # real names: nothing auto-detected
+    out = call("set_leads", lead_ids=["Prof A", "Prof C", "nobody"])["data"]["info"]
+    assert out["leads"] == ["Prof A", "Prof C"]
+    assert all(v == ["Prof A", "Prof C"] for v in api.STATE.ds["required_staff"].values())
+
+
+def test_infeasible_hint_mentions_if_needed():
+    texts = ",2026-03-11\n,9\nAnn,If needed\n", ",2026-03-11\n,9\nlead1,Yes\nstaff,Yes\n"
+    call("load", applicants=texts[0], staff=texts[1])
+    res = call("solve", params={"time_limit": 10})["data"]["result"]
+    assert res["status"] == "INFEASIBLE" and res["diagnostics"]["hint_if_needed"] == 1
+    call("load", applicants=texts[0], staff=texts[1], if_needed="available")
+    assert call("solve", params={"time_limit": 10})["data"]["result"]["ok"]

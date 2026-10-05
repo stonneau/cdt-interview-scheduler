@@ -31,8 +31,21 @@
         <input type="file" id="f-forb" accept=".csv,text/csv"></label>
       <label>Forbidden pairs, inline (optional)
         <input type="text" id="forb-inline" placeholder="Alice:Prof X, Bob:Prof Y"></label>
-      <label>Lead staff IDs
-        <input type="text" id="lead-ids" placeholder="auto: names starting “lead” · or type none"></label>
+      <label>Lead staff names (optional, comma-separated)
+        <input type="text" id="lead-ids" placeholder="or pick them from the list after loading"></label>
+    </div>
+    <div class="grid2 opts">
+      <label>“If needed” answers count as
+        <select id="opt-ifneeded">
+          <option value="unavailable" selected>unavailable (strict, only “Yes” is free)</option>
+          <option value="available">available</option>
+        </select></label>
+      <label>A name listed twice in a file
+        <select id="opt-dups">
+          <option value="last" selected>use the last row</option>
+          <option value="first">use the first row</option>
+          <option value="both">only slots where both rows say Yes</option>
+        </select></label>
     </div>
     <div class="row">
       <button id="btn-load" class="primary" disabled>Load files</button>
@@ -93,8 +106,8 @@
   <section class="card prose" id="help">
     <h2>File format &amp; rules</h2>
     <ul>
-      <li><b>Availability CSVs</b> (Doodle export): row 1 = dates, row 2 = slot start times (<code>9</code>, <code>9.45</code>, <code>10.3</code> — the part after the dot is <i>minutes</i> — or <code>09:00-09:45</code>), then one row per person. Only the cell value <b>Yes</b> means available; <i>No</i>, <i>If needed</i> and blanks mean unavailable. Both files must use the same dates and slot labels.</li>
-      <li><b>Leads</b>: staff whose name starts with <code>lead</code> (or those listed above). Every panel gets at least one lead.</li>
+      <li><b>Availability CSVs</b> (Doodle export): row 1 = dates, row 2 = slot start times (<code>9</code>, <code>9.45</code>, <code>10.3</code> — the part after the dot is <i>minutes</i> — or <code>09:00-09:45</code>), then one row per person. Only <b>Yes</b> means available by default; <i>No</i> and blank cells mean unavailable, and <i>If needed</i> follows the setting above. A person listed twice (answered the poll twice) is merged according to the setting above. Both files must use the same dates and slot labels.</li>
+      <li><b>Leads</b>: pick them from the list shown after loading (or type their names; staff named <code>lead…</code> are detected automatically). Every panel gets at least one lead.</li>
       <li><b>Forbidden pairs</b>: a supervisor never sits on their own applicant’s panel. CSV with <code>candidate_id,staff_id</code> columns, or the interview sheet format (<code>Surname, First name(s), Potential Supervisors</code>), or inline <code>applicant:staff</code>.</li>
       <li><b>Hard rules</b>: one interview per applicant, one applicant per slot (per room), everyone only when available, panel size within the chosen bounds, no staff member in two rooms at once. If they cannot all be met the answer is <i>infeasible</i> — with an explanation, never a schedule that breaks a rule.</li>
       <li><b>Soft goals</b>: change as few applicants and panellists as possible when rescheduling, then spread the interviews evenly across staff.</li>

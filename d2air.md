@@ -64,9 +64,10 @@ Notes:
   applicant the *list* of leads, and the model requires that the panel contains
   at least one of them.
 * **Availability is binary** (§3.1, §5.3). There are no preferences such as
-  "morning preferred". Only the cell value `Yes` (any capitalisation) counts as
-  available; `No`, `If needed`, empty cells and anything else count as
-  unavailable (see the gotchas in §7).
+  "morning preferred". By default only the cell value `Yes` (any capitalisation)
+  counts as available; `No`, empty cells and anything else count as unavailable. `If needed` is
+  unavailable too, unless you switch the *“If needed”* setting of the browser app to *available*
+  (see §7). The files are never edited: they are read exactly as exported.
 * Rule 8 only needs enabling when there are fewer slots than applicants *or*
   when you want parallel rooms. A small penalty makes the solver prefer the
   base slot (`t`) over the extra rooms (`t.2`, …), so parallel rooms are used
@@ -109,9 +110,12 @@ Alice Example,Yes,No,Yes,…                    <- one row per person
   (`9.45` → 09:45, `10.3` → 10:30). Both CSVs must use the **same labels**;
   afternoon hours may be written `1`, `2`, `3`, `4` as long as both files do the
   same. The `HH:MM-HH:MM` range format is also accepted.
-* **Leads**: the staff CSV must name them `lead…` (e.g. `lead1`, or rename the
-  three leads in the CSV before loading). In the web app you can instead type
-  the lead IDs in the *Lead staff IDs* box (`none` disables the lead rule).
+* **Leads**: the exported file has no notion of "lead", so tell the tool who they are. In the browser
+  app, tick them in the list shown after loading (or type their names; staff literally named
+  `lead…` are detected automatically). Nothing has to be changed in the CSV.
+* **Names listed twice** (someone answered the poll twice, which the export shows as two rows) are
+  merged by a setting: use the last row (default), the first, or only slots where both rows say Yes.
+  The page names everyone affected.
 * **Applicant names**: first column. Names are used as IDs, so keep them unique.
 * **Forbidden pairs**: either a CSV with columns `candidate_id,staff_id`, or the
   "real-data" format used by the CDT interview sheet (`Surname`, `First name(s)`,
@@ -176,7 +180,8 @@ The CSV files are read and solved inside your browser tab; nothing is uploaded.
 
 1. **Load availability**: choose the applicants CSV and the staff CSV (and optionally the forbidden pairs CSV
    or inline `applicant:staff` pairs). *Lead staff IDs* can stay empty (staff named `lead…` are detected).
-   *Try with example data* loads the anonymised CDT-scale dataset.
+   *Try with example data* loads the anonymised CDT-scale dataset. Then tick the **leads** in the list
+   that appears, and choose how to treat “If needed” answers and duplicate names (see §3).
 2. **Settings**: panel size 2–2, fairness *Even out*, time limit 30 s. Tick *Parallel interview rooms* only
    if applicants outnumber the usable slots (it makes the first solve much slower, see §7). Press
    **Solve initial schedule**; if it is infeasible the page lists the applicants with no usable slot.
@@ -199,7 +204,7 @@ make web         # opens http://localhost:8501
 **Step 1 – initial schedule**
 
 1. Upload the applicants CSV and the staff CSV.
-2. *Lead staff IDs*: leave blank to auto-detect `lead…` IDs, or type the lead IDs.
+2. *Lead staff names*: leave blank and tick the leads in the list after loading (or type their names).
 3. Add forbidden pairs (inline or CSV).
 4. Solver parameters: *Min staff per slot* `2`, *Fairness objective* `min_dev`,
    *Time limit* `30`, tick *Allow parallel interviews* (max `2`).
@@ -279,16 +284,18 @@ To reproduce the report's benchmark (4,590+ runs, hours of CPU), see
 
 ## 7. Gotchas
 
-* **Only `Yes` is "available".** `README.md` says `if needed` also counts; the
-  code (`_parse_availability_value` in `data_models/loaders.py`) does not. If the
-  Doodle export contains `If needed` and you want it treated as available,
-  replace it with `Yes` in the CSV first.
+* **Only `Yes` is "available" by default; `If needed` is a setting.** The original code (and the CDT
+  2026 cycle) treats `If needed` as unavailable. On a real export with hundreds of `If needed` answers
+  this can make the problem infeasible; the page then offers to reload counting them as available
+  (browser app: *“If needed” answers count as* in step 1; Python API: `parse_availability_text(...,
+  accept=YES_AND_IF_NEEDED)`). The CSV itself is never modified.
 * **Defaults differ between entry points.** The Python solver defaults to
   `min_dev` for fairness, but the CLI and the web-app dropdown default to
   `min_max`; CLI time limit is fixed at 5 s and the initial strategy at
   `change_penalty`.
-* **Lead detection is by name prefix** (`lead…`, lower case). A lead named
-  `Lead1` or `Prof Smith` is not detected unless listed in the web-app box.
+* **Lead detection by name prefix** (`lead…`, lower case) only exists for the CLI and for generated
+  data. With real names, pick the leads in the browser app, or list them in the Streamlit app's
+  *Lead staff IDs* box.
 * **Staff are matched by name** between the two CSVs and the forbidden-pairs
   file: spelling and spacing must match exactly.
 * **The fairness objective cannot always spread work.** Every panel needs a lead, so with only 3 leads for 33

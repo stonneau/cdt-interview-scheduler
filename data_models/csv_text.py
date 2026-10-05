@@ -11,10 +11,22 @@ import csv
 import io
 from typing import Dict, List, Set, Tuple
 
-from data_models.loaders import _isna, _normalize_slot_label, _parse_availability_value
+from data_models.loaders import _isna, _normalize_slot_label
 from data_models.models import Candidate, Staff
 
 _NAN = float("nan")
+
+#: Cell values (lower case) that mean "available".  The CDT convention is ``yes`` only;
+#: Doodle's "If need be" answers are an opt-in (see :data:`YES_AND_IF_NEEDED`).
+YES_ONLY = frozenset({"yes"})
+YES_AND_IF_NEEDED = frozenset({"yes", "if needed", "if need be", "ifneedbe"})
+
+
+def _cell(value, accept=YES_ONLY) -> int:
+    """1 if the cell means "available", else 0 (empty cells are unavailable)."""
+    if _isna(value):
+        return 0
+    return 1 if str(value).strip().lower() in accept else 0
 
 
 def _read_rows(text: str, ragged_pad: bool = True) -> List[list]:
@@ -35,7 +47,7 @@ def _read_rows(text: str, ragged_pad: bool = True) -> List[list]:
     return out
 
 
-def parse_availability_text(text: str, use_real_names: bool = True) -> Tuple[List[Candidate], List[str]]:
+def parse_availability_text(text: str, use_real_names: bool = True, accept=YES_ONLY) -> Tuple[List[Candidate], List[str]]:
     """Same as :func:`data_models.loaders.load_availability_objects_from_csv`."""
     rows = _read_rows(text)
     date_row, slot_row = rows[0][1:], rows[1][1:]
@@ -49,12 +61,12 @@ def parse_availability_text(text: str, use_real_names: bool = True) -> Tuple[Lis
             cid = f"cand{i + 1}"
         cand = Candidate(id=cid)
         for j, slot in enumerate(time_slots):
-            cand.availability[slot] = _parse_availability_value(row[j + 1])
+            cand.availability[slot] = _cell(row[j + 1], accept)
         candidates.append(cand)
     return candidates, time_slots
 
 
-def parse_staff_text(text: str) -> Tuple[List[Staff], List[str]]:
+def parse_staff_text(text: str, accept=YES_ONLY) -> Tuple[List[Staff], List[str]]:
     """Same as :func:`data_models.loaders.load_staff_objects_from_csv`."""
     rows = _read_rows(text)
     date_row = [str(d).split()[0] for d in rows[0][1:]]
@@ -66,7 +78,7 @@ def parse_staff_text(text: str) -> Tuple[List[Staff], List[str]]:
         staff = Staff(id=sname)
         staff.is_lead = str(sname).startswith("lead")
         for j, slot in enumerate(time_slots):
-            staff.availability[slot] = _parse_availability_value(row[j + 1])
+            staff.availability[slot] = _cell(row[j + 1], accept)
         staff_objs.append(staff)
     return staff_objs, time_slots
 

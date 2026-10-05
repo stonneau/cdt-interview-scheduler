@@ -631,7 +631,7 @@ sum_dev from avg (avg_int ≈ 2): |2-2|+|2-2|+|3-2|+|1-2| = 2
 
 ### CSV: Applicants Availability
 
-Two-level header CSV. Row 0 = dates, Row 1 = time slots. Cell values: `yes` / `no`. **Only `yes` (case-insensitive) is treated as available**; `no`, `if needed`, empty cells and any other text are treated as unavailable (the loader, `_parse_availability_value`, does not accept `if needed`).
+Two-level header CSV. Row 0 = dates, Row 1 = time slots. Cell values: `yes` / `no`. **Only `yes` (case-insensitive) is treated as available by default**; `no`, `if needed`, empty cells and any other text are unavailable (the file loader, `_parse_availability_value`, does not accept `if needed`). The browser app has a setting to count `If needed` as available and to merge a name listed twice (a person who answered the poll twice); input files are never modified.
 
 **Candidate names** are read from column 0 by default. When column 0 is empty (e.g. older CSV exports), candidates are auto-named `cand1`, `cand2`, etc.
 
@@ -1041,7 +1041,7 @@ Key features:
 python -m pytest tests/ -v
 ```
 
-The test suite has 278 tests (2 are skipped when optional data files are absent). All tests should pass.
+The test suite has about 280 tests (2 are skipped when optional data files are absent). All tests should pass.
 
 Key test files:
 

@@ -40,6 +40,7 @@ let info = null;            // candidates, staff, slots, dates, leads
 let hasSchedule = false;
 let staged = [];            // [{label, key, value}]
 let busy = false;
+let lastLoad = null;        // last load payload, to reload with another setting
 
 function setBusy(on, label) {
   busy = on;
@@ -64,7 +65,29 @@ async function afterLoad(out) {
   if (out.data.warnings.length)
     box.append(msg("warn", "Please check:", el("ul", {}, out.data.warnings.map((w) => el("li", { text: w })))));
   $("step-solve").hidden = false;
+  box.append(leadPicker());
   fillChangeForm();
+}
+
+function leadPicker() {
+  const boxes = info.staff.map((s) => el("label", { class: "check" },
+    el("input", { type: "checkbox", value: s.id, ...(s.lead ? { checked: "checked" } : {}) }), s.id));
+  const apply = el("button", { text: "Apply leads", onclick: async () => {
+    const ids = boxes.map((b) => b.firstChild).filter((i) => i.checked).map((i) => i.value);
+    setBusy(true, "Updating leads…");
+    const out = await call("set_leads", { lead_ids: ids });
+    setBusy(false, "Solver ready.");
+    if (!out.ok) { alert(out.error); return; }
+    info = out.data.info; hasSchedule = false; staged = [];
+    $("results").hidden = true; $("results").replaceChildren(); $("step-change").hidden = true;
+    summary.textContent = leadSummary();
+    fillChangeForm();
+  } });
+  const leadSummary = () => `Leads: ${info.leads.length ? info.leads.join(", ") : "none — no lead rule; tick the leads below"}`;
+  const summary = el("summary", { text: leadSummary() });
+  return el("details", { class: "msg", ...(info.leads.length ? {} : { open: "open" }) }, summary,
+    el("p", { class: "note", text: "Every panel includes at least one lead. Tick the lead staff, then apply (this resets any schedule)." }),
+    el("div", { class: "grid4" }, boxes), el("div", { class: "row" }, apply));
 }
 
 $("btn-load").addEventListener("click", async () => {
@@ -75,14 +98,16 @@ $("btn-load").addEventListener("click", async () => {
   const payload = {
     applicants: await readText($("f-app")), staff: await readText($("f-staff")),
     forbidden: await readText($("f-forb")), forbidden_inline: $("forb-inline").value,
-    lead_ids: $("lead-ids").value,
+    lead_ids: $("lead-ids").value, if_needed: $("opt-ifneeded").value, duplicates: $("opt-dups").value,
   };
+  lastLoad = payload;
   await afterLoad(await call("load", payload));
   setBusy(false, "Solver ready.");
 });
 
 $("btn-example").addEventListener("click", async () => {
   setBusy(true, "Generating example data…");
+  lastLoad = null;
   await afterLoad(await call("load_example", {}));
   setBusy(false, "Solver ready.");
 });
@@ -175,6 +200,15 @@ function diagnostics(d) {
     el("p", { class: "note", text: "Ask them for more availability, add staff, or relax the panel size." })));
   if (d.tight.length) box.append(msg("warn", "Applicants with very few usable slots (they compete for them): " +
     d.tight.map((x) => `${x.candidate} (${x.usable_slots})`).join(", ")));
+  if (d.hint_if_needed && lastLoad) box.append(msg("warn",
+    `${d.hint_if_needed} “If needed” answers are currently counted as unavailable. `,
+    el("button", { class: "link", text: "Reload counting “If needed” as available", onclick: async () => {
+      $("opt-ifneeded").value = "available";
+      setBusy(true, "Reloading…");
+      await afterLoad(await call("load", { ...lastLoad, if_needed: "available" }));
+      setBusy(false, "Solver ready.");
+      lastLoad = { ...lastLoad, if_needed: "available" };
+    } })));
   if (!d.no_slot.length) box.append(msg("warn",
     "No single applicant is blocked, so the conflict comes from several rules combining (too many applicants for the same slots, " +
     "forbidden pairs, lead availability). Try allowing parallel rooms, adding availability, or fewer constraints."));

@@ -15,6 +15,8 @@ import re
 from typing import Any, Dict, List, Optional
 
 from data_models.csv_text import (
+    YES_AND_IF_NEEDED,
+    YES_ONLY,
     parse_availability_text,
     parse_forbidden_pairs_text,
     parse_staff_text,
@@ -36,6 +38,8 @@ class _State:
     def __init__(self):
         self.ds: Optional[Dict[str, Any]] = None
         self.last: Optional[Dict[str, Any]] = None  # last successful result payload
+        self.if_needed_mode = "unavailable"
+        self.if_needed_cells = 0
 
 
 STATE = _State()
@@ -73,6 +77,42 @@ def _label(slot: str) -> str:
     d, t = _date_time(slot)
     room = _room(slot)
     return f"{d} {_pretty_time(t)}".strip() + (f" (room {room})" if room > 1 else "")
+
+
+def _count_if_needed(text: str) -> int:
+    """Number of "If needed" answers in an availability export."""
+    import csv
+    import io
+    rows = list(csv.reader(io.StringIO(text.lstrip("\ufeff"))))[2:]
+    extra = YES_AND_IF_NEEDED - YES_ONLY
+    return sum(1 for r in rows for c in r[1:] if c.strip().lower() in extra)
+
+
+def _dedupe(people, label, policy, warnings):
+    """Poll exports list a person twice when they answered twice.  Keep one row per
+    name: the last (default), the first, or only the slots where both rows say yes."""
+    groups: Dict[str, list] = {}
+    for p in people:
+        groups.setdefault(p.id, []).append(p)
+    if all(len(g) == 1 for g in groups.values()):
+        return people
+    out, names = [], []
+    for name, rows in groups.items():
+        if len(rows) == 1:
+            out.append(rows[0])
+            continue
+        chosen = rows[-1] if policy == "last" else rows[0]
+        differ = any(r.availability != rows[0].availability for r in rows[1:])
+        if policy == "both":
+            chosen = rows[0]
+            chosen.availability = {t: int(all(r.availability.get(t, 0) == 1 for r in rows))
+                                   for t in rows[0].availability}
+        names.append(f"{name}{'' if differ else ' (identical answers)'}")
+        out.append(chosen)
+    how = {"last": "the last row is used", "first": "the first row is used",
+           "both": "a slot counts only if every row says yes"}.get(policy, "the last row is used")
+    warnings.append(f"Listed more than once in the {label} file — {how}: " + ", ".join(names))
+    return out
 
 
 def _need_session():
@@ -117,8 +157,11 @@ def _info(ds: Dict[str, Any]) -> Dict[str, Any]:
 
 def load(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Parse the CSV texts and open a new session."""
-    cands, slots_a = parse_availability_text(payload["applicants"])
-    staff, slots_s = parse_staff_text(payload["staff"])
+    accept = YES_AND_IF_NEEDED if payload.get("if_needed") == "available" else YES_ONLY
+    STATE.if_needed_mode = "available" if accept is YES_AND_IF_NEEDED else "unavailable"
+    STATE.if_needed_cells = _count_if_needed(payload["applicants"]) + _count_if_needed(payload["staff"])
+    cands, slots_a = parse_availability_text(payload["applicants"], accept=accept)
+    staff, slots_s = parse_staff_text(payload["staff"], accept=accept)
     warnings: List[str] = []
     for label, slots in (("applicants", slots_a), ("staff", slots_s)):
         bad = [t for t in slots if not re.match(r"^\d{4}-\d{2}-\d{2}", t)]
@@ -126,6 +169,9 @@ def load(payload: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError(
                 f"The {label} file does not look like an availability export: the first row should hold "
                 "dates (like 2026-03-11) and the second row the slot times.")
+    policy = payload.get("duplicates", "last")
+    cands = _dedupe(cands, "applicants", policy, warnings)
+    staff = _dedupe(staff, "staff", policy, warnings)
     if not cands:
         raise ValueError("The applicants file contains no applicant rows.")
     if not staff:
@@ -188,6 +234,10 @@ def load(payload: Dict[str, Any]) -> Dict[str, Any]:
         "prev_schedule": {}, "prev_staff_assignment": None, "lead_ids": leads,
     }
     STATE.last = None
+    if STATE.if_needed_cells:
+        warnings.append(f"{STATE.if_needed_cells} “If needed” answers are being counted as "
+                        f"{'available' if STATE.if_needed_mode == 'available' else 'unavailable'} "
+                        "(change this with the “If needed” setting).")
     return {"info": _info(STATE.ds), "warnings": warnings}
 
 
@@ -195,6 +245,17 @@ def load_example(payload: Dict[str, Any]) -> Dict[str, Any]:
     texts = make_example(int(payload.get("seed", 7)))
     return load({"applicants": texts["applicants"], "staff": texts["staff"],
                  "forbidden": texts["forbidden"], "lead_ids": ""})
+
+
+def set_leads(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Choose which staff are leads (every panel then gets at least one of them)."""
+    _need_session()
+    ids = [x for x in payload.get("lead_ids", []) if x in STATE.ds["staff"]]
+    STATE.ds["lead_ids"] = sorted(ids)
+    STATE.ds["required_staff"] = {c: list(ids) for c in STATE.ds["candidates"]} if ids else {}
+    STATE.ds["prev_schedule"], STATE.ds["prev_staff_assignment"] = {}, None
+    STATE.last = None
+    return {"info": _info(STATE.ds)}
 
 
 # -------------------------------------------------------------- diagnostics
@@ -237,6 +298,8 @@ def _result(ds, schedule, meta, params, prev=None) -> Dict[str, Any]:
     }
     if not ok:
         out["diagnostics"] = diagnose(ds, params)
+        if STATE.if_needed_mode == "unavailable" and STATE.if_needed_cells:
+            out["diagnostics"]["hint_if_needed"] = STATE.if_needed_cells
         return out
 
     leads = set(ds.get("lead_ids") or [])
@@ -451,7 +514,7 @@ def export(payload: Dict[str, Any]) -> Dict[str, Any]:
 # ----------------------------------------------------------------- dispatch
 
 _METHODS = {
-    "load": load, "load_example": load_example, "solve": solve,
+    "load": load, "load_example": load_example, "set_leads": set_leads, "solve": solve,
     "reschedule": reschedule_, "export": export,
 }
 

@@ -1,0 +1,1 @@
+python3 -m ui.cli --applicantscsv data/applicants_availabilities.csv --staffcsv data/staff_aligned_45min.csv

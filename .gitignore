@@ -1,0 +1,10 @@
+venv/*
+*__pycache__/
+TODO.md
+data/*
+.idea
+.pytest_cache
+.github/
+.vscode/
+outputs/*
+results/*

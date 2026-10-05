@@ -112,3 +112,20 @@ def test_afternoon_hours_are_displayed_and_sorted_chronologically():
     keys = [(r["date"], r["time"], r["room"]) for r in res["rows"]]
     assert keys == sorted(keys)
     assert any(r["time"] >= "13:00" for r in res["rows"])
+
+
+def test_wrong_file_is_rejected_with_a_clear_message():
+    texts = make_example()
+    out = call("load", applicants=texts["forbidden"], staff=texts["staff"])   # wrong file as applicants
+    assert out["ok"] is False and "does not look like an availability export" in out["error"]
+    out = call("load", applicants=texts["applicants"], staff=texts["applicants"].replace("2026", "x"))
+    assert out["ok"] is False
+
+
+def test_applicant_without_availability_is_flagged():
+    texts = make_example()
+    lines = texts["applicants"].splitlines()
+    cells = lines[2].split(",")
+    lines[2] = ",".join([cells[0]] + ["No"] * (len(cells) - 1))
+    out = call("load", applicants="\n".join(lines) + "\n", staff=texts["staff"])
+    assert out["ok"] and any(cells[0] in w for w in out["data"]["warnings"])

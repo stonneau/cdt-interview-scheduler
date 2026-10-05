@@ -1041,7 +1041,7 @@ Key features:
 python -m pytest tests/ -v
 ```
 
-The test suite has 274 tests (2 skipped when optional data files are absent). All tests should pass.
+The test suite has 278 tests (2 are skipped when optional data files are absent). All tests should pass.
 
 Key test files:
 

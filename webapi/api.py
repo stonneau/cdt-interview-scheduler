@@ -120,6 +120,12 @@ def load(payload: Dict[str, Any]) -> Dict[str, Any]:
     cands, slots_a = parse_availability_text(payload["applicants"])
     staff, slots_s = parse_staff_text(payload["staff"])
     warnings: List[str] = []
+    for label, slots in (("applicants", slots_a), ("staff", slots_s)):
+        bad = [t for t in slots if not re.match(r"^\d{4}-\d{2}-\d{2}", t)]
+        if not slots or bad:
+            raise ValueError(
+                f"The {label} file does not look like an availability export: the first row should hold "
+                "dates (like 2026-03-11) and the second row the slot times.")
     if not cands:
         raise ValueError("The applicants file contains no applicant rows.")
     if not staff:
@@ -161,6 +167,10 @@ def load(payload: Dict[str, Any]) -> Dict[str, Any]:
     if len(set(sids)) != len(sids):
         raise ValueError("Staff names must be unique.")
     leads = sorted({l for v in required.values() for l in v})
+    never = [c.id for c in cands if not any(v == 1 for v in c.availability.values())]
+    if never:
+        warnings.append("No availability at all (will make the problem infeasible): " + ", ".join(never[:8])
+                        + ("…" if len(never) > 8 else ""))
     if lead_ids and set(lead_ids) - set(sids):
         warnings.append("Unknown lead id(s) ignored: " + ", ".join(sorted(set(lead_ids) - set(sids))))
     if not leads:

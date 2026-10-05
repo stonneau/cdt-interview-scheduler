@@ -108,6 +108,12 @@ def solve_cpsat(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveRe
         solver.parameters.max_time_in_seconds = float(params["time_limit"])
     if params.get("num_workers") is not None:
         solver.parameters.num_search_workers = int(params["num_workers"])
+    else:
+        # CP-SAT proves optimality of the fairness objectives much faster with a diverse
+        # portfolio (>= 8 workers): on 4 cores a 9-applicant min_dev instance stays "feasible"
+        # for 20 s instead of solving in 0.1 s.  Use at least 8 even on small machines.
+        import os
+        solver.parameters.num_search_workers = max(8, os.cpu_count() or 1)
     if params.get("random_seed") is not None:
         try:
             solver.parameters.random_seed = int(params["random_seed"])

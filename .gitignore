@@ -1,7 +1,12 @@
 venv/*
+.venv/
 *__pycache__/
 TODO.md
+# Generated runs are ignored; the small example datasets are tracked.
 data/*
+!data/README.md
+!data/demo_small/
+!data/cdt_example/
 .idea
 .pytest_cache
 .github/

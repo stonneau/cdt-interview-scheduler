@@ -13,9 +13,8 @@ extracts assignments, and optionally persists results via ``DataStore``.
 """
 
 from typing import Any, Dict, List, Tuple
-from ortools.sat.python import cp_model
 import time
-from scheduler.model_builder import build_model
+from scheduler import backends
 import copy
 from scheduler import strategies
 from data_models.store import DataStore
@@ -310,63 +309,34 @@ def solve_initial_schedule(*args: Any, **kwargs: Any) -> Tuple[Dict[str, str], D
             time_slots, avail, staff_avail, max_parallel,
         )
 
-    model, x, y = build_model(
-        candidates=candidates,
-        time_slots=time_slots,
-        avail=avail,
-        staff=staff,
-        staff_avail=staff_avail,
-        required_staff=required_staff,
-        forbidden_pairs=active_forbidden_pairs,
-        prev_schedule=prev_schedule,
-        prev_staff_assignment=prev_staff_assignment,
-        min_staff_per_slot=min_staff_per_slot,
-        max_staff_per_slot=max_staff_per_slot,
-        fairness=fairness,
-        staff_change_penalty_weight=staff_change_penalty_weight,
-        penalty_scale=penalty_scale,
-        candidate_change_penalty_weight=candidate_change_penalty_weight,
-        parallel_slot_groups=parallel_slot_groups,
-        frozen_slots=frozen_slots,
+    result = backends.solve(
+        dict(
+            candidates=candidates,
+            time_slots=time_slots,
+            avail=avail,
+            staff=staff,
+            staff_avail=staff_avail,
+            required_staff=required_staff,
+            forbidden_pairs=active_forbidden_pairs,
+            prev_schedule=prev_schedule,
+            prev_staff_assignment=prev_staff_assignment,
+            min_staff_per_slot=min_staff_per_slot,
+            max_staff_per_slot=max_staff_per_slot,
+            fairness=fairness,
+            staff_change_penalty_weight=staff_change_penalty_weight,
+            penalty_scale=penalty_scale,
+            candidate_change_penalty_weight=candidate_change_penalty_weight,
+            parallel_slot_groups=parallel_slot_groups,
+            frozen_slots=frozen_slots,
+        ),
+        params,
     )
-
-    solver = cp_model.CpSolver()
-    time_limit = params.get("time_limit")
-    if time_limit is not None:
-        solver.parameters.max_time_in_seconds = float(time_limit)
-    num_workers = params.get("num_workers")
-    if num_workers is not None:
-        solver.parameters.num_search_workers = int(num_workers)
-
-    # Determinism / random seed control
-    if params.get("random_seed") is not None:
-        try:
-            solver.parameters.random_seed = int(params.get("random_seed"))
-        except Exception:
-            pass
-    if params.get("deterministic") is not None:
-        try:
-            # CP-SAT's randomize_search toggles randomized heuristics; set to False for deterministic behaviour
-            solver.parameters.randomize_search = not bool(params.get("deterministic"))
-        except Exception:
-            pass
-
-    start = time.time()
-    status = solver.Solve(model)
-    solve_time = time.time() - start
-
-    status_map = {
-        cp_model.OPTIMAL: "OPTIMAL",
-        cp_model.FEASIBLE: "FEASIBLE",
-        cp_model.INFEASIBLE: "INFEASIBLE",
-        cp_model.MODEL_INVALID: "MODEL_INVALID",
-        cp_model.UNKNOWN: "UNKNOWN",
-    }
-    status_name = status_map.get(status, str(status))
+    solve_time = result.solve_time
+    status_name = result.status_name
 
     # When the solver reports INFEASIBLE, run a quick diagnostic to identify
     # candidates that cannot possibly be assigned to any slot.
-    if status == cp_model.INFEASIBLE:
+    if result.infeasible:
         _diagnose_infeasibility(
             candidates, time_slots, avail, staff, staff_avail,
             required_staff, min_staff_per_slot,
@@ -374,55 +344,34 @@ def solve_initial_schedule(*args: Any, **kwargs: Any) -> Tuple[Dict[str, str], D
 
     schedule: Dict[str, Any] = {}
     staff_assignment: Dict[str, Any] = {}
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+    if result.has_solution:
         for c in candidates:
             assigned = None
             for t in time_slots:
-                try:
-                    val = solver.Value(x[c, t])
-                except Exception:
-                    # variable might not exist for malformed inputs; skip
-                    val = 0
-                if val == 1:
+                if result.value_x(c, t) == 1:
                     assigned = t
                     break
-            if assigned is not None:
-                schedule[c] = assigned
-            else:
-                # Candidate left unassigned (shouldn't happen given hard constraint),
-                # keep as None to indicate missing assignment.
-                schedule[c] = None
-        
+            # Candidate left unassigned (shouldn't happen given hard constraint)
+            # is kept as None to indicate a missing assignment.
+            schedule[c] = assigned
+
         # Extract staff assignments, but ONLY for slots with scheduled candidates
         occupied_slots = set(s for s in schedule.values() if s is not None)
-        
+
         for t in time_slots:
-            staff_list = []
-            for s in staff:
-                try:
-                    if solver.Value(y[s,t]) == 1:
-                        staff_list.append(s)
-                except Exception:
-                    continue
-            # Only include staff assignment if a candidate is scheduled at this slot
+            staff_list = [s for s in staff if result.value_y(s, t) == 1]
             if t in occupied_slots:
                 staff_assignment[t] = staff_list
 
     metadata: Dict[str, Any] = {
         "status": status_name,
-        "cp_status": int(status),
+        "cp_status": int(result.status),
         "solve_time_seconds": solve_time,
-        "num_conflicts": solver.NumConflicts(),
-        "num_branches": solver.NumBranches(),
-        "objective_value": None,
+        "num_conflicts": result.num_conflicts,
+        "num_branches": result.num_branches,
+        "objective_value": result.objective_value if result.has_solution else None,
         "staff_assignment": staff_assignment,
     }
-    # Objective value only available if an objective was present and solver returns feasible/optimal
-    try:
-        if hasattr(solver, "ObjectiveValue") and status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            metadata["objective_value"] = solver.ObjectiveValue()
-    except Exception:
-        metadata["objective_value"] = None
 
     # Persist schedule and append an event if persistence is enabled (default
     # True). Include source paths from params in the saved metadata when

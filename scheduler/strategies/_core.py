@@ -5,9 +5,8 @@ Core solver helper shared by all rescheduling strategies.
 from typing import Any, Dict, List, Tuple
 import copy
 import time
-from ortools.sat.python import cp_model
 
-from scheduler import model_builder
+from scheduler import backends
 
 
 def _solve_model(data_store: Dict[str, Any], params: Dict[str, Any], use_prev: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -67,82 +66,47 @@ def _solve_model(data_store: Dict[str, Any], params: Dict[str, Any], use_prev: b
     parallel_slot_groups = ds.get("parallel_slot_groups")
     frozen_slots = params.get("frozen_slots") or ds.get("frozen_slots")
 
-    model, x, y = model_builder.build_model(
-        candidates=candidates,
-        time_slots=time_slots,
-        avail=avail,
-        staff=staff,
-        staff_avail=staff_avail,
-        required_staff=required_staff,
-        forbidden_pairs=active_forbidden_pairs,
-        prev_schedule=prev_schedule,
-        prev_staff_assignment=prev_staff_assignment,
-        min_staff_per_slot=min_staff_per_slot,
-        fairness=fairness,
-        staff_change_penalty_weight=staff_change_penalty_weight,
-        penalty_scale=penalty_scale,
-        fairness_weight=fairness_weight,
-        candidate_change_penalty_weight=candidate_change_penalty_weight,
-        parallel_slot_groups=parallel_slot_groups,
-        frozen_slots=frozen_slots,
+    result = backends.solve(
+        dict(
+            candidates=candidates,
+            time_slots=time_slots,
+            avail=avail,
+            staff=staff,
+            staff_avail=staff_avail,
+            required_staff=required_staff,
+            forbidden_pairs=active_forbidden_pairs,
+            prev_schedule=prev_schedule,
+            prev_staff_assignment=prev_staff_assignment,
+            min_staff_per_slot=min_staff_per_slot,
+            fairness=fairness,
+            staff_change_penalty_weight=staff_change_penalty_weight,
+            penalty_scale=penalty_scale,
+            fairness_weight=fairness_weight,
+            candidate_change_penalty_weight=candidate_change_penalty_weight,
+            parallel_slot_groups=parallel_slot_groups,
+            frozen_slots=frozen_slots,
+        ),
+        params,
     )
-
-    solver = cp_model.CpSolver()
-    if params.get("time_limit") is not None:
-        solver.parameters.max_time_in_seconds = float(params["time_limit"])
-    if params.get("num_workers") is not None:
-        solver.parameters.num_search_workers = int(params["num_workers"])
-
-    if params.get("random_seed") is not None:
-        try:
-            solver.parameters.random_seed = int(params.get("random_seed"))
-        except Exception:
-            pass
-    if params.get("deterministic") is not None:
-        try:
-            solver.parameters.randomize_search = not bool(params.get("deterministic"))
-        except Exception:
-            pass
-
-    start = time.time()
-    status = solver.Solve(model)
-    solve_time = time.time() - start
+    solve_time = result.solve_time
 
     schedule: Dict[str, Any] = {}
     staff_assignment: Dict[str, List[str]] = {}
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+    if result.has_solution:
         for c in candidates:
             assigned = None
             for t in time_slots:
-                try:
-                    if solver.Value(x[c, t]) == 1:
-                        assigned = t
-                        break
-                except Exception:
-                    continue
+                if result.value_x(c, t) == 1:
+                    assigned = t
+                    break
             schedule[c] = assigned
 
         occupied_slots = set(s for s in schedule.values() if s is not None)
 
         for t in time_slots:
-            staff_list: List[str] = []
-            for s in staff:
-                try:
-                    if solver.Value(y[s, t]) == 1:
-                        staff_list.append(s)
-                except Exception:
-                    continue
+            staff_list: List[str] = [s for s in staff if result.value_y(s, t) == 1]
             if t in occupied_slots:
                 staff_assignment[t] = staff_list
-
-    status_map = {
-        cp_model.OPTIMAL: "OPTIMAL",
-        cp_model.FEASIBLE: "FEASIBLE",
-        cp_model.INFEASIBLE: "INFEASIBLE",
-        cp_model.MODEL_INVALID: "MODEL_INVALID",
-        cp_model.UNKNOWN: "UNKNOWN",
-    }
-    status_name = status_map.get(status, str(status))
 
     num_changed = None
     if prev_schedule and schedule:
@@ -153,19 +117,14 @@ def _solve_model(data_store: Dict[str, Any], params: Dict[str, Any], use_prev: b
                 num_changed += 1
 
     metadata = {
-        "status": status_name,
-        "cp_status": int(status),
+        "status": result.status_name,
+        "cp_status": int(result.status),
         "solve_time_seconds": solve_time,
-        "num_conflicts": solver.NumConflicts(),
-        "num_branches": solver.NumBranches(),
-        "objective_value": None,
+        "num_conflicts": result.num_conflicts,
+        "num_branches": result.num_branches,
+        "objective_value": result.objective_value if result.has_solution else None,
         "staff_assignment": staff_assignment,
         "num_changed_assignments": num_changed,
     }
-    try:
-        if hasattr(solver, "ObjectiveValue") and status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            metadata["objective_value"] = solver.ObjectiveValue()
-    except Exception:
-        metadata["objective_value"] = None
 
     return schedule, metadata

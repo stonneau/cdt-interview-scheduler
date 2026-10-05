@@ -5,7 +5,7 @@ greedy_least_loaded, and variance_minimizing.
 
 from typing import Any, Dict, List, Set, Tuple
 import copy
-from ortools.sat.python import cp_model
+from scheduler.backends import CP_FEASIBLE, CP_INFEASIBLE
 
 from scheduler.strategies._core import _solve_model
 from scheduler.strategies._basic import change_penalty
@@ -324,7 +324,7 @@ def greedy_least_loaded(data_store: Dict[str, Any], change_event: Dict[str, Any]
 
     metadata = {
         "status": status_name,
-        "cp_status": int(cp_model.FEASIBLE) if all_assigned else int(cp_model.INFEASIBLE),
+        "cp_status": CP_FEASIBLE if all_assigned else CP_INFEASIBLE,
         "solve_time_seconds": 0.0,
         "num_conflicts": 0,
         "num_branches": 0,

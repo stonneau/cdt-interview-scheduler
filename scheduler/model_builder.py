@@ -1,7 +1,5 @@
 """Build the CP-SAT constraint model for the interview scheduling problem."""
 
-from ortools.sat.python import cp_model
-
 
 def build_model(
         candidates,
@@ -136,6 +134,8 @@ def build_model(
         Decision variables ``{(staff_id, timeslot_id): BoolVar}``
         indicating staff-to-slot assignments.
     """
+    from ortools.sat.python import cp_model  # lazy: the MIP backend does not need OR-Tools
+
     model = cp_model.CpModel()
 
     x = {}

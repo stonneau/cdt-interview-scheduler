@@ -4,7 +4,8 @@
 > *"Benchmarking Minimally-Disruptive Scheduling Strategies in an Academic Context"*
 > carried out at the **School of Informatics, University of Edinburgh** (2025, report dated 2026)
 > by **Guillermo Perfect**, supervised by Dr. Steve Tonneau. The first commit of this repository is the
-> project exactly as delivered; later commits only add packaging, example data and documentation.
+> project as delivered (personal names in tests and examples were replaced by fictional ones); later commits add
+> packaging, example data, documentation and a pure-Python MIP backend.
 >
 > **Looking to schedule CDT admissions interviews?** Go straight to [d2air.md](d2air.md): use case,
 > constraints and the recommended configuration.
@@ -280,6 +281,30 @@ The solver is built on **Google OR-Tools CP-SAT**, a Boolean satisfiability and 
 6. **Required staff:** if candidate `c` requires staff `s`, then `y[s,t] ≥ x[c,t]` for all `t`
 7. **Forbidden pairs:** `y[s,t] ≤ 1 - x[c,t]` for all forbidden `(c,s)` pairs and all `t`
 8. **Staff exclusivity across parallel slots:** when parallel interviews are enabled, each staff member can attend at most one parallel instance at the same base time: `∑_{t ∈ group} y[s,t] ≤ 1` for each staff member and each parallel group
+
+### Solver backends: CP-SAT or pure-Python MIP
+
+By default the model is solved with **OR-Tools CP-SAT**. The very same model can also be solved as a
+mixed-integer linear program with **HiGHS through `scipy.optimize.milp`**
+(`scheduler/backends.py`, `solve_mip`), which needs only numpy/scipy and no native OR-Tools wheel
+(a first step towards running the solver in a browser with Pyodide). Select it with the `backend`
+parameter:
+
+```python
+schedule, meta = solver_module.solve_initial_schedule(data_store=ds, params={"backend": "mip"})
+```
+
+All strategies work with both backends. `tests/test_mip_backend.py` solves 60 scenarios (all
+strategies × disruption types, fairness modes, parallel rooms, frozen slots, forbidden pairs,
+infeasible instances) with both and checks that: statuses match, objective values are equal, and the
+allocations are compared; when the MIP allocation differs from CP-SAT's (equal-cost ties), it is fixed
+inside the real CP-SAT model, which must accept it with the same objective value.
+
+Speed (CDT-scale example, 33 candidates / 16 staff / 160 slots, `make bench`): reschedules take
+0.1–0.5 s with either backend, but the initial solve is roughly 8–12× slower with MIP (≈ 8–12 s vs
+≈ 0.4–1 s), and a reschedule that adds candidates with parallel rooms can take tens of seconds.
+
+---
 
 ### Parallel Interview Slots
 
@@ -991,7 +1016,7 @@ Key features:
 python -m pytest tests/ -v
 ```
 
-The test suite has 187 tests. All tests should pass.
+The test suite has 246 tests. All tests should pass.
 
 Key test files:
 
@@ -1010,6 +1035,7 @@ Key test files:
 | `test_solver_determinism.py` | Deterministic solver behaviour under fixed seed |
 | `test_collect_metrics.py` | Per-run metrics aggregation |
 | `test_sweep_runner.py` | Sweep framework: scenarios, runner, plots, infeasibility, penalty scale |
+| `test_mip_backend.py` | MIP backend vs CP-SAT: status, objective, allocations, CP-SAT feasibility of MIP solutions |
 | `test_harness_demo.py` | Demo harness integration test |
 | `test_produce_plots.py` | Plot generation smoke test |
 | `test_staff_assignment_occupied_slots.py` | Staff assignment for occupied slots only |
@@ -1031,7 +1057,8 @@ Key test files:
 | `staff_change_penalty_weight` | 1 | Weight for staff reassignment penalties |
 | `penalty_scale` | 1000 (strategy-dependent) | Scaling factor for change penalties in the objective. Defaults: 1000 (change_penalty, local_repair), 100 (slack_based, plns), 50 (fairness_weighted), 10 (variance_minimizing) |
 | `fairness_weight` | 1 | Scaling factor for the fairness term in the objective |
-| `time_limit` | None | CP-SAT solver time limit (seconds) |
+| `backend` | `"cpsat"` | `"cpsat"` (OR-Tools) or `"mip"` (HiGHS via scipy) |
+| `time_limit` | None | Solver time limit (seconds) |
 | `num_workers` | None | Number of parallel solver workers |
 | `random_seed` | None | Seed for deterministic solving |
 | `deterministic` | False | Disable randomised search |

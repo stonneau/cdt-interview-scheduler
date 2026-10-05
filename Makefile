@@ -3,7 +3,7 @@ VENV   ?= .venv
 PYTHON ?= python3
 PY     := $(VENV)/bin/python
 
-.PHONY: install test demo web cdt-data cdt clean
+.PHONY: install test demo web cdt-data cdt bench clean
 
 install:  ## Create .venv and install dependencies
 	$(PYTHON) -m venv $(VENV)
@@ -24,6 +24,9 @@ cdt-data:  ## Generate the anonymised CDT-scale example data in data/cdt_example
 
 cdt:  ## Run the CDT walkthrough (initial schedule + 3 disruptions)
 	$(PY) examples/cdt_walkthrough.py
+
+bench:  ## Compare the CP-SAT and MIP backends at CDT scale
+	$(PY) examples/benchmark_backends.py
 
 clean:  ## Remove generated runs and caches
 	rm -rf data/run-* data/demo-* data/sweeps .pytest_cache

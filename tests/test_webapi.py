@@ -177,3 +177,15 @@ def test_infeasible_hint_mentions_if_needed():
     assert res["status"] == "INFEASIBLE" and res["diagnostics"]["hint_if_needed"] == 1
     call("load", applicants=texts[0], staff=texts[1], if_needed="available")
     assert call("solve", params={"time_limit": 10})["data"]["result"]["ok"]
+
+
+def test_example_files_download_matches_the_example_and_can_be_loaded():
+    import base64, io, zipfile
+    out = call("example_files")
+    assert out["ok"]
+    z = zipfile.ZipFile(io.BytesIO(base64.b64decode(out["data"]["zip_base64"])))
+    assert sorted(z.namelist()) == ["applicants_availabilities.csv", "forbidden_pairs.csv", "staff_availabilities.csv"]
+    loaded = call("load", applicants=z.read("applicants_availabilities.csv").decode(),
+                  staff=z.read("staff_availabilities.csv").decode(), forbidden=z.read("forbidden_pairs.csv").decode())
+    assert loaded["ok"] and len(loaded["data"]["info"]["candidates"]) == 33
+    assert loaded["data"]["info"]["n_forbidden"] == 8

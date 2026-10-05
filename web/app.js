@@ -22,7 +22,7 @@ worker.onmessage = (ev) => {
   else if (m.type === "ready") {
     engineReady = true; $("engine").classList.add("ready");
     $("engine-msg").textContent = "Solver ready.";
-    $("btn-load").disabled = false; $("btn-example").disabled = false;
+    $("btn-load").disabled = false; $("btn-example").disabled = false; $("btn-example-files").disabled = false;
   } else if (m.type === "fatal") {
     $("engine").classList.add("fatal");
     $("engine-msg").textContent = "Could not start the solver: " + m.msg +
@@ -110,6 +110,14 @@ $("btn-example").addEventListener("click", async () => {
   lastLoad = null;
   await afterLoad(await call("load_example", {}));
   setBusy(false, "Solver ready.");
+});
+
+$("btn-example-files").addEventListener("click", async () => {
+  const out = await call("example_files", {});
+  if (!out.ok) { alert(out.error); return; }
+  const bytes = Uint8Array.from(atob(out.data.zip_base64), (c) => c.charCodeAt(0));
+  const a = el("a", { href: URL.createObjectURL(new Blob([bytes], { type: "application/zip" })), download: "example_csv_files.zip" });
+  document.body.append(a); a.click(); a.remove();
 });
 
 /* ------------------------------------------------------------------ step 2 */

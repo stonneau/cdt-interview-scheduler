@@ -322,8 +322,9 @@ schedule, meta = solver_module.solve_initial_schedule(data_store=ds, params={"ba
 All strategies work with both backends. `tests/test_mip_backend.py` solves 60+ scenarios (all
 strategies × disruption types, fairness modes, parallel rooms, frozen slots, forbidden pairs,
 infeasible instances) with both and checks that: statuses match, objective values are equal, and the
-allocations are compared; when the MIP allocation differs from CP-SAT's (equal-cost ties), it is fixed
-inside the real CP-SAT model, which must accept it with the same objective value.
+allocations are identical (a deterministic tie-break stage chooses one optimal allocation, `tie_break`); with
+`tie_break=False`, a different equal-cost allocation is fixed inside the real CP-SAT model, which must accept
+it with the same objective value.
 
 Speed (CDT-scale example, 33 candidates / 16 staff / 160 slots, `make bench`): reschedules take
 0.1–0.5 s with either backend, but the initial solve is roughly 8–12× slower with MIP (≈ 8–12 s vs
@@ -1083,6 +1084,7 @@ Key test files:
 | `min_staff_per_slot` | 2 | Minimum staff per occupied slot |
 | `max_staff_per_slot` | 2 | Maximum staff per occupied slot |
 | `fairness` | `"min_max"` (CLI/Streamlit), `"min_dev"` (Python solver) | Fairness objective: `"balanced"` (leads among themselves, other staff among themselves), `"min_max"`, `"min_dev"`/`"variance"`, or `"none"` |
+| `tie_break` | `True` | After the main objective is optimal, a second stage picks the optimal allocation of minimum name-derived weight, so CP-SAT and MIP (and every run) return the **same allocation**. Costs a second solve; skipped when optimality is not proven (time limit) |
 | `allow_idle_staff` | `False` | `True` reproduces the original model, where staff could be parked on empty slots (counted by the fairness terms, then dropped) |
 | `candidate_change_penalty_weight` | 5 | Weight for candidate move penalties (5× the default `staff_change_penalty_weight` of 1, preventing unnecessary candidate swaps) |
 | `staff_change_penalty_weight` | 1 | Weight for staff reassignment penalties |

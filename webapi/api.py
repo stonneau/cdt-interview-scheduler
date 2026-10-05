@@ -258,6 +258,20 @@ def set_leads(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"info": _info(STATE.ds)}
 
 
+def example_files(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """The anonymised example as a zip (base64), so it can be tried with the file upload."""
+    import base64
+    import io
+    import zipfile
+    texts = make_example(int(payload.get("seed", 7)))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("applicants_availabilities.csv", texts["applicants"])
+        z.writestr("staff_availabilities.csv", texts["staff"])
+        z.writestr("forbidden_pairs.csv", texts["forbidden"])
+    return {"zip_base64": base64.b64encode(buf.getvalue()).decode("ascii")}
+
+
 # -------------------------------------------------------------- diagnostics
 
 def diagnose(ds: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
@@ -514,7 +528,7 @@ def export(payload: Dict[str, Any]) -> Dict[str, Any]:
 # ----------------------------------------------------------------- dispatch
 
 _METHODS = {
-    "load": load, "load_example": load_example, "set_leads": set_leads, "solve": solve,
+    "load": load, "load_example": load_example, "example_files": example_files, "set_leads": set_leads, "solve": solve,
     "reschedule": reschedule_, "export": export,
 }
 

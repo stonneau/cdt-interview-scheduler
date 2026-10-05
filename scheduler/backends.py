@@ -63,6 +63,22 @@ class SolveResult:
         return self.status == CP_INFEASIBLE
 
 
+def tie_break_weight(kind: str, who: str, slot: str) -> int:
+    """Deterministic pseudo-random positive integer for one (candidate|staff, slot) pair.
+
+    Several allocations often have exactly the same objective value.  A second stage
+    picks, among the optimal ones, the allocation of minimum total tie-break weight; as
+    the weights depend only on names, CP-SAT and MIP (and every run) agree on the choice.
+    """
+    import zlib
+    return zlib.crc32(f"{kind}|{who}|{slot}".encode("utf-8")) % 1048573 + 1
+
+
+def _remaining(params: Dict[str, Any], elapsed: float):
+    tl = params.get("time_limit")
+    return None if tl is None else max(1.0, float(tl) - elapsed)
+
+
 def solve(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResult:
     """Build and solve the scheduling model with the backend named in *params*."""
     backend = params.get("backend", "cpsat")
@@ -105,7 +121,6 @@ def solve_cpsat(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveRe
 
     start = time.time()
     status = int(solver.Solve(model))
-    solve_time = time.time() - start
 
     objective = None
     if status in (CP_OPTIMAL, CP_FEASIBLE):
@@ -113,6 +128,25 @@ def solve_cpsat(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveRe
             objective = solver.ObjectiveValue()
         except Exception:
             objective = None
+
+    # Stage 2 (tie-break): among allocations of optimal cost, take the one of minimum
+    # name-derived weight, so that every backend and every run returns the same allocation.
+    if params.get("tie_break", True) and status == CP_OPTIMAL:
+        main = getattr(model, "_main_objective", None)
+        if main is not None:
+            model.Add(main <= int(round(objective)))
+        model.Minimize(
+            sum(tie_break_weight("x", c, t) * var for (c, t), var in x.items())
+            + sum(tie_break_weight("y", s_, t) * var for (s_, t), var in y.items()))
+        solver2 = cp_model.CpSolver()
+        solver2.parameters.CopyFrom(solver.parameters)
+        rem = _remaining(params, time.time() - start)
+        if rem is not None:
+            solver2.parameters.max_time_in_seconds = rem
+        st2 = int(solver2.Solve(model))
+        if st2 in (CP_OPTIMAL, CP_FEASIBLE):
+            solver = solver2          # same main-objective value, canonical allocation
+    solve_time = time.time() - start
 
     def value_x(c, t):
         try:
@@ -380,16 +414,43 @@ def solve_mip(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResu
     except Exception:  # malformed model
         return SolveResult(CP_MODEL_INVALID, None, lambda c, t: 0, lambda s, t: 0,
                            time.time() - start)
+    main_res = res
+
+    # Stage 2 (tie-break): see tie_break_weight().  Keep the main objective at its optimum
+    # (cost . z <= optimum) and minimise the name-derived weights.
+    if params.get("tie_break", True) and res.status == 0 and res.x is not None:
+        tie = np.zeros(n)
+        for c in candidates:
+            for t in time_slots:
+                tie[xi(c, t)] = tie_break_weight("x", c, t)
+        for s_ in staff:
+            for t in time_slots:
+                tie[yi(s_, t)] = tie_break_weight("y", s_, t)
+        cons2 = list(constraints)
+        if np.any(cost):
+            cons2.append(LinearConstraint(cost.reshape(1, -1), -np.inf,
+                                          float(res.fun) + 1e-6 * (1.0 + abs(res.fun))))
+        opts2 = dict(options)
+        rem = _remaining(params, time.time() - start)
+        if rem is not None:
+            opts2["time_limit"] = rem
+        try:
+            res2 = milp(c=tie, constraints=cons2, integrality=integrality,
+                        bounds=Bounds(lb, ub), options=opts2)
+            if res2.x is not None and res2.status in (0, 1):
+                res = res2
+        except Exception:
+            pass
     solve_time = time.time() - start
 
     # scipy status: 0 optimal, 1 limit reached, 2 infeasible, 3 unbounded, 4 other
-    if res.status == 0:
+    if main_res.status == 0:
         status = CP_OPTIMAL
-    elif res.status == 1:
-        status = CP_FEASIBLE if res.x is not None else CP_UNKNOWN
-    elif res.status == 2:
+    elif main_res.status == 1:
+        status = CP_FEASIBLE if main_res.x is not None else CP_UNKNOWN
+    elif main_res.status == 2:
         status = CP_INFEASIBLE
-    elif res.status == 3:
+    elif main_res.status == 3:
         status = CP_MODEL_INVALID
     else:
         status = CP_UNKNOWN
@@ -397,7 +458,7 @@ def solve_mip(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResu
     xs = res.x
     objective = None
     if status in (CP_OPTIMAL, CP_FEASIBLE) and xs is not None:
-        objective = float(res.fun) + const
+        objective = float(main_res.fun) + const     # value of the main objective, not the tie-break
 
     def value_x(c, t):
         return int(round(xs[xi(c, t)])) if xs is not None else 0

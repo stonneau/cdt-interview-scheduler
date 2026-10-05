@@ -439,3 +439,32 @@ def test_independent_validator_rejects_corrupted_solutions():
     for patched in bad:
         with pytest.raises(AssertionError):
             check_solve(kwargs, patched)
+
+
+# --------------------------------------------- identical allocations (tie-break stage)
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4])
+@pytest.mark.parametrize("fairness", ["none", "min_max", "min_dev", "balanced"])
+def test_same_allocation_with_tie_break(seed, fairness):
+    """Optimal allocations are not unique; the deterministic tie-break stage picks the same
+    one in CP-SAT and in MIP, and the same one on every run."""
+    ds = make_ds(seed, n_c=9, n_s=6, forbid=2)
+    params = {"fairness": fairness}
+    res = run_both(initial, ds, params)
+    (sa, ma, _), (sb, mb, _) = res["cpsat"], res["mip"]
+    assert ma["status"] == mb["status"] == "OPTIMAL"
+    assert normalise(sa, ma["staff_assignment"]) == normalise(sb, mb["staff_assignment"])
+    again = run_both(initial, ds, params)["mip"]
+    assert normalise(again[0], again[1]["staff_assignment"]) == normalise(sb, mb["staff_assignment"])
+
+
+def test_same_allocation_when_rescheduling():
+    ds, events = reschedule_case(11, n_c=10, n_s=7, days=3, spd=4)
+    for strategy in ("change_penalty", "local_repair", "variance_minimizing"):
+        def fn(d, p, strategy=strategy):
+            return reschedule(data_store=copy.deepcopy(d), change_event=events["staff_unavailable"],
+                              params={**p, "strategy": strategy})
+        res = run_both(fn, ds, {"fairness": "min_dev"})
+        (sa, ma, _), (sb, mb, _) = res["cpsat"], res["mip"]
+        assert ma["status"] == mb["status"] == "OPTIMAL"
+        assert normalise(sa, ma["staff_assignment"]) == normalise(sb, mb["staff_assignment"]), strategy

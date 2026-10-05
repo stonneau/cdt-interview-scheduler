@@ -71,7 +71,7 @@ def main():
             params = {**base, **{k: v for k, v in params.items()}}
             run = [("initial", None, None, ds, params)]
             sched, meta = solve_initial_schedule(data_store=copy.deepcopy(ds),
-                                                 params={**params, "backend": "cpsat", "allow_idle_staff": True})
+                                                 params={**params, "backend": "cpsat", "allow_idle_staff": True, "tie_break": False})
             if sched and meta["status"] in ("OPTIMAL", "FEASIBLE"):
                 ds2 = copy.deepcopy(ds)
                 ds2["prev_schedule"], ds2["prev_staff_assignment"] = sched, meta["staff_assignment"]
@@ -84,10 +84,10 @@ def main():
                 cases.append(case)
                 if kind == "initial":
                     s, m = solve_initial_schedule(data_store=copy.deepcopy(d),
-                                                  params={**p, "backend": "cpsat", "allow_idle_staff": True})
+                                                  params={**p, "backend": "cpsat", "allow_idle_staff": True, "tie_break": False})
                 else:
                     s, m = reschedule(data_store=copy.deepcopy(d), change_event=ev,
-                                      params={**p, "backend": "cpsat", "allow_idle_staff": True, "strategy": strat})
+                                      params={**p, "backend": "cpsat", "allow_idle_staff": True, "tie_break": False, "strategy": strat})
                 new_results.append({"status": m["status"], "objective": m["objective_value"], "schedule": s,
                                     "panels": {t: sorted(q) for t, q in (m.get("staff_assignment") or {}).items()}})
         cfile, ofile, rfile = (os.path.join(work, x) for x in ("cases.json", "orig.json", "runner.py"))

@@ -352,7 +352,9 @@ def build_model(
         all_terms.append(sum(parallel_penalties))
 
     if all_terms:
-        model.Minimize(sum(all_terms))
+        main_objective = sum(all_terms)
+        model.Minimize(main_objective)
+        model._main_objective = main_objective      # used by the tie-break stage (backends.py)
     # else: no objective — feasibility only
 
     return model, x, y

@@ -303,6 +303,10 @@ To reproduce the report's benchmark (4,590+ runs, hours of CPU), see
   *Lead staff IDs* box.
 * **Staff are matched by name** between the two CSVs and the forbidden-pairs
   file: spelling and spacing must match exactly.
+* **Same input, same schedule.** Several allocations usually share the optimal cost; a second solving stage
+  (`tie_break`, on by default) picks one canonical optimum, so CP-SAT and the browser app return the same
+  allocation and a re-run gives the same schedule. This holds when optimality is proven; if the time limit
+  stops the search (status *Feasible*) the schedule can differ between runs.
 * **The original model could hide workload on empty slots.** It let the solver assign staff to slots
   with no interview; those assignments counted in the fairness terms but were dropped from the published
   schedule. With `min_dev` this made every non-lead look exactly average to the objective (on the

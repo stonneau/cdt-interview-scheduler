@@ -294,7 +294,7 @@ parameter:
 schedule, meta = solver_module.solve_initial_schedule(data_store=ds, params={"backend": "mip"})
 ```
 
-All strategies work with both backends. `tests/test_mip_backend.py` solves 60 scenarios (all
+All strategies work with both backends. `tests/test_mip_backend.py` solves 60+ scenarios (all
 strategies × disruption types, fairness modes, parallel rooms, frozen slots, forbidden pairs,
 infeasible instances) with both and checks that: statuses match, objective values are equal, and the
 allocations are compared; when the MIP allocation differs from CP-SAT's (equal-cost ties), it is fixed
@@ -1016,7 +1016,7 @@ Key features:
 python -m pytest tests/ -v
 ```
 
-The test suite has 246 tests. All tests should pass.
+The test suite has 249 tests. All tests should pass.
 
 Key test files:
 

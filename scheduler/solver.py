@@ -70,8 +70,10 @@ def _diagnose_infeasibility(candidates, time_slots, avail, staff, staff_avail,
         for t in avail_slots:
             if slot_staff_count[t] < min_staff_per_slot:
                 continue
-            if req and not all(
-                staff_avail.get(s, {}).get(t, 0) == 1 for s in req if s in staff
+            # The model needs at least ONE required staff member on the panel (not all).
+            req_in_pool = [s for s in req if s in staff]
+            if req_in_pool and not any(
+                staff_avail.get(s, {}).get(t, 0) == 1 for s in req_in_pool
             ):
                 continue
             feasible.append(t)

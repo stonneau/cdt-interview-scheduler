@@ -245,3 +245,13 @@ def test_plns_discoverable_via_get_strategy():
     # Case-insensitive
     fn2 = strategies.get_strategy("PLNS")
     assert fn2 is strategies.plns
+
+def test_infeasibility_diagnostic_needs_only_one_required_lead(capsys):
+    """Regression: the diagnostic used to demand ALL required staff, but the model needs one."""
+    from scheduler.solver import _diagnose_infeasibility
+    _diagnose_infeasibility(
+        candidates=["c"], time_slots=["t"], avail={"c": {"t": 1}},
+        staff=["lead1", "lead2", "x"],
+        staff_avail={"lead1": {"t": 1}, "lead2": {"t": 0}, "x": {"t": 1}},
+        required_staff={"c": ["lead1", "lead2"]}, min_staff_per_slot=2)
+    assert "NO feasible slot" not in capsys.readouterr().out

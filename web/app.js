@@ -146,11 +146,13 @@ function showResult(out, title, host = $("results")) {
 
   const statusCls = r.ok ? (r.status === "OPTIMAL" ? "ok" : "warn") : "bad";
   const statusTxt = r.status === "OPTIMAL" ? "Optimal" : r.status === "FEASIBLE" ? "Feasible (time limit reached, may not be optimal)"
-    : r.status === "INFEASIBLE" ? "Infeasible — no schedule satisfies every rule" : r.status;
+    : r.status === "INFEASIBLE" ? "Infeasible — no schedule satisfies every rule"
+    : r.status === "UNKNOWN" ? "No schedule found within the time limit (not proven infeasible)" : r.status;
   const chips = [el("span", { class: "chip " + statusCls, text: statusTxt }),
     el("span", { class: "chip", text: `solved in ${r.solve_seconds}s` })];
   if (r.ok) {
     chips.push(el("span", { class: "chip", text: `${r.rows.length} interviews` }));
+    if (r.rooms_used > 1) chips.push(el("span", { class: "chip", text: `${r.rooms_used} parallel rooms needed` }));
     chips.push(el("span", { class: "chip", text: `workload per person: ${r.load_stats.min}–${r.load_stats.max} (mean ${r.load_stats.mean})` }));
     if (r.changes) chips.push(el("span", { class: "chip warn", text:
       `${r.changes.moved} moved · ${r.changes.panel} panel change${r.changes.panel === 1 ? "" : "s"} · ${r.changes.new} new · ${r.changes.removed} removed` }));
@@ -201,6 +203,15 @@ function showResult(out, title, host = $("results")) {
 
 function diagnostics(d) {
   const box = el("div");
+  if (d.timeout) {
+    box.append(msg("warn", `The solver found no schedule within ${d.time_limit} s. This does not mean there is none: the problem was just not solved in time.`,
+      el("ul", {}, [
+        el("li", { text: "Raise the time limit (step 2), especially on a phone or a slow computer." }),
+        el("li", { text: "Turn off parallel rooms, or lower their number: each extra room multiplies the size of the problem." }),
+        el("li", { text: "Count “If needed” answers as available (step 1) to give the solver more room." }),
+      ])));
+    return box;
+  }
   box.append(msg("", `${d.n_candidates} applicants, ${d.slots_with_valid_panel} slots where a valid panel exists` +
     ` (capacity ${d.capacity} interviews with the current room setting).`));
   if (d.no_slot.length) box.append(msg("err", "These applicants cannot be scheduled at all:",

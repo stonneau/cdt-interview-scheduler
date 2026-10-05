@@ -189,3 +189,32 @@ def test_example_files_download_matches_the_example_and_can_be_loaded():
                   staff=z.read("staff_availabilities.csv").decode(), forbidden=z.read("forbidden_pairs.csv").decode())
     assert loaded["ok"] and len(loaded["data"]["info"]["candidates"]) == 33
     assert loaded["data"]["info"]["n_forbidden"] == 8
+
+
+def test_parallel_rooms_are_added_only_when_needed():
+    call("load_example")
+    r = call("solve", params={"allow_parallel": True, "max_parallel": 3, "time_limit": 60})["data"]["result"]
+    assert r["ok"] and r["rooms_used"] == 1            # 33 applicants fit in the base rooms
+    assert all(row["room"] == 1 for row in r["rows"])
+
+
+def test_rooms_escalate_one_at_a_time_and_are_kept_when_rescheduling():
+    texts = make_example(8, 24, 12, 3, 2)               # 24 applicants, only 20 base slots
+    call("load", applicants=texts["applicants"], staff=texts["staff"], forbidden=texts["forbidden"],
+         if_needed="available")
+    params = {"allow_parallel": True, "max_parallel": 3, "time_limit": 20}
+    r = call("solve", params=params)["data"]["result"]
+    assert r["ok"] and r["rooms_used"] == 2 and max(row["room"] for row in r["rows"]) == 2
+    # rescheduling without the rooms option must still keep the rooms the schedule already uses
+    victim = r["rows"][0]
+    out = call("reschedule", params={**params, "allow_parallel": False}, strategy="local_repair",
+               changes={"staff_unavailable": [[victim["panel"][-1], victim["slot"].split(".")[0]]]})
+    assert out["data"]["result"]["ok"] and out["data"]["result"]["rooms_used"] == 2
+
+
+def test_timeout_without_a_schedule_is_not_reported_as_infeasible():
+    call("load_example")
+    params = api._params({"allow_parallel": True, "max_parallel": 3, "time_limit": 30})
+    res = api._result(api.STATE.ds, {}, {"status": "UNKNOWN", "solve_time_seconds": 30.0}, params)
+    assert res["ok"] is False and res["diagnostics"]["timeout"] is True
+    assert "no_slot" not in res["diagnostics"]          # no misleading "several rules combining" text

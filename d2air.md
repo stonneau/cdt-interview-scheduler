@@ -315,9 +315,12 @@ To reproduce the report's benchmark (4,590+ runs, hours of CPU), see
 * **The original `min_dev` does not balance the leads** (see §2): use `balanced` (or `min_max`). With
   only 3 leads for 33 interviews they still carry most of the work (about 11 each); if that is too much,
   add a lead.
-* **Parallel rooms are slow with the MIP backend** (browser app): the two rooms of a slot are interchangeable,
-  which is hard for a MIP solver. Without parallel rooms the example solves in a few seconds; with them it
-  took 12–100 s. Leave them off unless applicants outnumber the usable slots, or use CP-SAT (CLI / Streamlit).
+* **Parallel rooms are slow with the MIP backend** (browser app): the rooms of a slot are interchangeable,
+  which is hard for a MIP solver, and each room multiplies the number of slots. The app therefore adds rooms
+  **one at a time and only if the problem is proven infeasible without them** (the page shows "N parallel
+  rooms needed"). Ticking the option with room to spare costs nothing, but a problem that really needs 3 rooms
+  can exceed the time limit: you then get *No schedule found within the time limit* (not an infeasibility
+  proof) — raise the time limit, lower the number of rooms, or use CP-SAT (CLI / Streamlit).
 * **Afternoon hours:** Doodle writes 1 pm as `1`; the app shows slots starting at 1–7 as 13:00–19:00.
 * **Rescheduling needs a baseline.** Without a previous schedule the stability
   term is absent and every strategy behaves like a fresh solve.

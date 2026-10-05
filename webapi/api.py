@@ -310,6 +310,11 @@ def _result(ds, schedule, meta, params, prev=None) -> Dict[str, Any]:
         "status": status, "ok": ok, "objective": meta.get("objective_value"),
         "solve_seconds": round(float(meta.get("solve_time_seconds") or 0), 2),
     }
+    if not ok and status == "UNKNOWN":
+        # time limit reached without any schedule: NOT proven infeasible
+        out["diagnostics"] = {"timeout": True, "time_limit": params.get("time_limit"),
+                              "rooms": params["max_parallel"] if params["allow_parallel"] else 1}
+        return out
     if not ok:
         out["diagnostics"] = diagnose(ds, params)
         if STATE.if_needed_mode == "unavailable" and STATE.if_needed_cells:
@@ -366,14 +371,36 @@ def _public(result: Dict[str, Any]) -> Dict[str, Any]:
 
 # --------------------------------------------------------------------- solve
 
+def _with_rooms(run, params, min_rooms=1):
+    """Run ``run(params_for_k_rooms)`` adding parallel rooms one at a time, only if needed.
+
+    Parallel rooms multiply the number of slots (and make the MIP much slower), and the model
+    already prefers the base room, so we first try with one room and add another only when the
+    problem is *proven infeasible* without it.  A time-out (no schedule found, not proven
+    infeasible) stops the escalation: more rooms would only make it harder.
+    Returns ``(schedule, meta, rooms_used)``.
+    """
+    wanted = params["max_parallel"] if params["allow_parallel"] else 1
+    last = max(wanted, min_rooms)
+    for rooms in range(max(1, min_rooms), last + 1):
+        p = dict(params, allow_parallel=rooms > 1, max_parallel=rooms)
+        schedule, meta = run(p)
+        if meta.get("status") != "INFEASIBLE" or rooms == last:
+            return schedule, meta, rooms
+    raise AssertionError("unreachable")
+
+
+
 def solve(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Compute the initial schedule."""
     _need_session()
     params = _params(payload.get("params", {}))
-    ds = copy.deepcopy(STATE.ds)
-    ds["prev_schedule"], ds["prev_staff_assignment"] = {}, None
-    schedule, meta = solve_initial_schedule(data_store=ds, params=dict(params))
+    base = copy.deepcopy(STATE.ds)
+    base["prev_schedule"], base["prev_staff_assignment"] = {}, None
+    schedule, meta, rooms = _with_rooms(
+        lambda p: solve_initial_schedule(data_store=copy.deepcopy(base), params=dict(p)), params)
     result = _result(STATE.ds, schedule, meta, params)
+    result["rooms_used"] = rooms
     if result["ok"]:
         STATE.ds["prev_schedule"] = dict(schedule)
         STATE.ds["prev_staff_assignment"] = meta["staff_assignment"]
@@ -479,16 +506,23 @@ def reschedule_(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("No change staged.")
 
     freeze = payload.get("freeze_date")
-    if freeze:
-        base = {t for t in work["time_slots"] if _date_time(t)[0] <= freeze}
-        frozen = set(base)
-        if params["allow_parallel"]:  # rooms of a frozen slot are frozen too
-            frozen |= {f"{t}.{i}" for t in base for i in range(2, params["max_parallel"] + 1)}
-        params["frozen_slots"] = frozen
+    freeze_base = {t for t in work["time_slots"] if _date_time(t)[0] <= freeze} if freeze else set()
+    # rooms already used by the published schedule must stay available
+    min_rooms = max([_room(t) for t in (STATE.last.get("schedule") or {}).values()] or [1])
 
-    schedule, meta = reschedule(data_store=work, change_event=event, params=dict(params))
+    def run(p):
+        q = dict(p)
+        if freeze_base:
+            frozen = set(freeze_base)
+            if p["allow_parallel"]:  # rooms of a frozen slot are frozen too
+                frozen |= {f"{t}.{i}" for t in freeze_base for i in range(2, p["max_parallel"] + 1)}
+            q["frozen_slots"] = frozen
+        return reschedule(data_store=copy.deepcopy(work), change_event=event, params=q)
+
+    schedule, meta, rooms = _with_rooms(run, params, min_rooms)
     after = _after(work, event)   # the session data as it would be once the event is accepted
     result = _result(after, schedule, meta, params, prev=STATE.last)
+    result["rooms_used"] = rooms
     if result["ok"]:
         after["prev_schedule"] = dict(schedule)
         after["prev_staff_assignment"] = meta["staff_assignment"]

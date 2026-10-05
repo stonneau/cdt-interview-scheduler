@@ -36,7 +36,7 @@ def random_case(seed):
         lead_ids = [s for s in ds["staff"] if s.startswith("lead")]
         ds["required_staff"] = {c: list(lead_ids) for c in ds["candidates"]}
     mn, mx = rng.choice([(2, 2), (1, 2), (2, 3), (1, 1), (3, 3)])
-    params = {"fairness": rng.choice(["none", "min_max", "min_dev"]),
+    params = {"fairness": rng.choice(["none", "min_max", "min_dev", "balanced"]),
               "min_staff_per_slot": mn, "max_staff_per_slot": mx}
     if rng.random() < 0.35:
         params.update(allow_parallel=True, max_parallel=rng.choice([2, 3]))

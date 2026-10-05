@@ -1,6 +1,22 @@
 """Build the CP-SAT constraint model for the interview scheduling problem."""
 
 
+#: In the "balanced" fairness mode, one unit of (max - min) load counts this many times an
+#: extra lead assignment (see build_model).
+BALANCED_RANGE_WEIGHT = 4
+
+
+def _lead_set(required_staff, staff):
+    """Staff members that appear in some candidate's required list (the leads)."""
+    pool = set(staff)
+    out = set()
+    for req in (required_staff or {}).values():
+        for s in ([req] if isinstance(req, str) else (req or [])):
+            if s in pool:
+                out.add(s)
+    return out
+
+
 def build_model(
         candidates,
         time_slots,
@@ -20,6 +36,7 @@ def build_model(
     candidate_change_penalty_weight: int = 5,
     parallel_slot_groups=None,
     frozen_slots=None,
+    allow_idle_staff: bool = False,
 ):
     """Build the CP-SAT model for the interview scheduling problem.
 
@@ -123,6 +140,11 @@ def build_model(
         blocked — no new candidates or staff can be assigned there.  Staff
         loads from frozen slots still count for the fairness objective.
 
+    allow_idle_staff : bool
+        ``False`` (default): staff can only be assigned to occupied slots.  ``True``
+        reproduces the original model, where staff could be parked on empty slots
+        (those assignments were counted by the workload terms, then discarded).
+
     Returns
     -------
     model : cp_model.CpModel
@@ -212,6 +234,12 @@ def build_model(
 
         model.Add(sum(y[s, t] for s in staff) >= min_staff_per_slot).OnlyEnforceIf(has_candidate)
         model.Add(sum(y[s, t] for s in staff) <= max_staff_per_slot).OnlyEnforceIf(has_candidate)
+        # Nobody is assigned to a slot without an interview.  (Without this the solver could
+        # park staff on empty slots to look "fairer": those assignments count in the workload
+        # terms but are discarded from the published schedule.)
+        if not allow_idle_staff:
+            for s in staff:
+                model.Add(y[s, t] == 0).OnlyEnforceIf(has_candidate.Not())
 
     for c in candidates:
         req = required_staff.get(c, [])
@@ -274,6 +302,25 @@ def build_model(
         for s in staff:
             model.Add(max_load >= staff_counts[s])
         fairness_term = max_load
+    elif fairness == "balanced":
+        # Balance each role among itself: leads (staff named in required_staff) and the
+        # other staff.  For each group minimise max load - min load.
+        lead_set = _lead_set(required_staff, staff)
+        ranges = []
+        for gi, group in enumerate(g for g in (sorted(lead_set), [s for s in staff if s not in lead_set])
+                                   if len(g) > 1):
+            hi = model.NewIntVar(0, len(time_slots), f"hi_{gi}")
+            lo = model.NewIntVar(0, len(time_slots), f"lo_{gi}")
+            for s in group:
+                model.Add(hi >= staff_counts[s])
+                model.Add(lo <= staff_counts[s])
+            ranges.append(hi - lo)
+        # Secondary term: a lead beyond the one required per panel is an avoidable extra
+        # load on the leads (their total is at least the number of interviews).  A range
+        # unit counts BALANCED_RANGE_WEIGHT times an extra lead assignment.
+        lead_total = sum(staff_counts[s] for s in lead_set)
+        fairness_term = (BALANCED_RANGE_WEIGHT * sum(ranges) + lead_total) if lead_set and ranges else (
+            BALANCED_RANGE_WEIGHT * sum(ranges) if ranges else None)
     elif fairness in ("min_dev", "variance"):
         deviations = []
         total_slots_per_staff_upper = len(time_slots)

@@ -821,7 +821,7 @@ if page == "1 · Load Data & Solve":
         )
         fairness = st.selectbox(
             "Fairness objective",
-            ["min_max", "none", "min_dev"],
+            ["min_max", "none", "min_dev", "balanced"],
             index=0,
         )
         staff_penalty = st.number_input(

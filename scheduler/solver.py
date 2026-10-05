@@ -330,6 +330,7 @@ def solve_initial_schedule(*args: Any, **kwargs: Any) -> Tuple[Dict[str, str], D
             candidate_change_penalty_weight=candidate_change_penalty_weight,
             parallel_slot_groups=parallel_slot_groups,
             frozen_slots=frozen_slots,
+            allow_idle_staff=bool(params.get("allow_idle_staff", False)),
         ),
         params,
     )

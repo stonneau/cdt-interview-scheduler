@@ -124,7 +124,7 @@ def _params(p: Dict[str, Any]) -> Dict[str, Any]:
     out = {
         "min_staff_per_slot": int(p.get("min_staff", 2)),
         "max_staff_per_slot": int(p.get("max_staff", p.get("min_staff", 2))),
-        "fairness": p.get("fairness", "min_dev"),
+        "fairness": p.get("fairness", "balanced"),
         "time_limit": float(p.get("time_limit", 30)),
         "allow_parallel": bool(p.get("allow_parallel", False)),
         "max_parallel": int(p.get("max_parallel", 2)),
@@ -134,7 +134,7 @@ def _params(p: Dict[str, Any]) -> Dict[str, Any]:
     }
     if out["max_staff_per_slot"] < out["min_staff_per_slot"]:
         raise ValueError("Maximum panel size cannot be smaller than the minimum.")
-    if out["fairness"] not in ("min_dev", "min_max", "none"):
+    if out["fairness"] not in ("balanced", "min_dev", "min_max", "none"):
         raise ValueError(f"Unknown fairness objective {out['fairness']!r}.")
     return out
 

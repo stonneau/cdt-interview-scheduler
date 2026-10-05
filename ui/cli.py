@@ -214,11 +214,12 @@ def main() -> None:
     parser.add_argument(
         "--fairness",
         type=str,
-        choices=["none", "min_max", "min_dev"],
+        choices=["none", "min_max", "min_dev", "balanced"],
         default="min_max",
         help=(
             "Fairness objective: none, min_max (minimise max load), "
-            "or min_dev (minimise deviations)"
+            "min_dev (minimise deviations) or balanced (leads balanced among themselves, "
+            "other staff among themselves)"
         ),
     )
     parser.add_argument(

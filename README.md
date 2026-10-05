@@ -388,7 +388,12 @@ The `fairness` parameter controls the **secondary objective** (staff workload ba
 | `"min_max"` | Maximum load across all staff | Single `max_load` integer | Preventing any one person being overwhelmed |
 | `"variance"` | Sum of absolute deviations from average | One `dev_s` per staff member | Spreading load evenly across the whole team |
 | `"min_dev"` | Identical to `"variance"` (alias) | Same as above | Same as above |
+| `"balanced"` | Gap between the most and least loaded, **separately** for the leads (staff in `required_staff`) and for the other staff | `hi`/`lo` pair per group | Leads forced onto many panels: balances them among themselves, and everyone else among themselves |
 | `"none"` | Nothing (feasibility only) | — | When fairness is irrelevant |
+
+**`"balanced"`** (added after the UG4 report) exists because the two original modes compare every staff member with the *same* reference. Leads sit on at least one panel of every interview, so they are always above the average: the `min_dev` term is flat there (it cannot tell 11/11/11 from 4/4/25), while `min_max` balances the leads but ignores everybody else. `balanced` minimises `max − min` within each of the two groups.
+
+> **Idle slots.** In the original model staff could also be assigned to slots with *no* interview. Those assignments counted in the workload terms (making non-leads look exactly average under `min_dev`) and were then dropped from the published schedule. The model now assigns staff only to occupied slots; `allow_idle_staff=True` restores the original behaviour (see `tests/compare_with_original.py`).
 
 **`"min_max"`** introduces a variable `max_load` bounded by every `staff_count[s] ≤ max_load`. The solver minimises `max_load`. This *caps the busiest person's load* but is indifferent to how work is distributed among everyone else — two distributions with the same peak are treated as identical.
 
@@ -1041,7 +1046,7 @@ Key features:
 python -m pytest tests/ -v
 ```
 
-The test suite has about 280 tests (2 are skipped when optional data files are absent). All tests should pass.
+The test suite has about 290 tests (2 are skipped when optional data files are absent). All tests should pass.
 
 Key test files:
 
@@ -1077,7 +1082,8 @@ Key test files:
 |-----------|---------|-------------|
 | `min_staff_per_slot` | 2 | Minimum staff per occupied slot |
 | `max_staff_per_slot` | 2 | Maximum staff per occupied slot |
-| `fairness` | `"min_max"` | Fairness objective: `"min_max"`, `"variance"`, or `"none"` |
+| `fairness` | `"min_max"` (CLI/Streamlit), `"min_dev"` (Python solver) | Fairness objective: `"balanced"` (leads among themselves, other staff among themselves), `"min_max"`, `"min_dev"`/`"variance"`, or `"none"` |
+| `allow_idle_staff` | `False` | `True` reproduces the original model, where staff could be parked on empty slots (counted by the fairness terms, then dropped) |
 | `candidate_change_penalty_weight` | 5 | Weight for candidate move penalties (5× the default `staff_change_penalty_weight` of 1, preventing unnecessary candidate swaps) |
 | `staff_change_penalty_weight` | 1 | Weight for staff reassignment penalties |
 | `penalty_scale` | 1000 (strategy-dependent) | Scaling factor for change penalties in the objective. Defaults: 1000 (change_penalty, local_repair), 100 (slack_based, plns), 50 (fairness_weighted), 10 (variance_minimizing) |

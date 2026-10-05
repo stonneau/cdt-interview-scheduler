@@ -220,7 +220,7 @@ def assert_same(res, ds=None, params=None):
 # ------------------------------------------------------------ initial solves
 
 @pytest.mark.parametrize("seed", [1, 2, 3])
-@pytest.mark.parametrize("fairness", ["none", "min_max", "min_dev"])
+@pytest.mark.parametrize("fairness", ["none", "min_max", "min_dev", "balanced"])
 def test_initial_matches(seed, fairness):
     ds = make_ds(seed, forbid=3)
     params = {"fairness": fairness}
@@ -405,7 +405,9 @@ def test_checker_rejects_corrupted_solutions():
 
 def test_checker_detects_a_wrong_objective():
     """Feasible but suboptimal allocation: accepted, with a strictly worse objective."""
-    ds, kwargs, res, sched = _scenario()
+    ds = make_ds(21, n_c=8, n_s=7, days=3, spd=4, leads=2, forbid=2)
+    kwargs, res = _mip_solution(ds, {"fairness": "min_dev", "allow_idle_staff": True})  # original model
+    sched = {c: next(t for t in kwargs["time_slots"] if res.value_x(c, t)) for c in kwargs["candidates"]}
     # Add a phantom staff on an EMPTY slot: still feasible (CP-SAT leaves empty slots free)
     # but it unbalances the workload, so CP-SAT must score it worse.
     occupied = set(sched.values())

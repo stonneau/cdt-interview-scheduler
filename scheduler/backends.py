@@ -164,6 +164,7 @@ def solve_mip(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResu
     w_cand = a.get("candidate_change_penalty_weight", 5)
     groups = a.get("parallel_slot_groups")
     frozen = frozenset(a.get("frozen_slots") or [])
+    allow_idle = bool(a.get("allow_idle_staff", False))
 
     C, T, S = len(candidates), len(time_slots), len(staff)
     c_idx = {c: i for i, c in enumerate(candidates)}
@@ -188,6 +189,17 @@ def solve_mip(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResu
         for s in staff:
             aux[("dev", s)] = n
             n += 1
+    balanced_groups = []
+    balanced_lead_set = set()
+    if fairness == "balanced":
+        from scheduler.model_builder import _lead_set
+        lead_set = _lead_set(required_staff, staff)
+        balanced_lead_set = lead_set
+        for gi, group in enumerate(g for g in ([s for s in staff if s in lead_set],
+                                               [s for s in staff if s not in lead_set]) if len(g) > 1):
+            aux[("hi", gi)], aux[("lo", gi)] = n, n + 1
+            balanced_groups.append((gi, group))
+            n += 2
 
     lb = np.zeros(n)
     ub = np.ones(n)
@@ -196,8 +208,12 @@ def solve_mip(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResu
     for s in staff:
         if ("dev", s) in aux:
             ub[aux[("dev", s)]] = T
+    for gi, _g in balanced_groups:
+        ub[aux[("hi", gi)]] = ub[aux[("lo", gi)]] = T
     integrality = np.zeros(n)
     integrality[:n_xy] = 1
+    # Workload aggregates are integers too: declaring it tightens HiGHS' bound (optimality proofs).
+    integrality[n_xy:] = 1
 
     # Availability (missing keys -> unavailable)
     for c in candidates:
@@ -256,14 +272,19 @@ def solve_mip(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResu
     # 2. at most one candidate per slot
     for t in time_slots:
         add_row([(xi(c, t), 1.0) for c in candidates], -inf, 1)
-    # 5. staff count per occupied slot; sum(x) at a slot is its has_candidate
-    #    indicator (<= 1).  With no candidate the staff count is unconstrained
-    #    (0..|S|), exactly like the CP-SAT OnlyEnforceIf formulation.
+    # 5. staff count per occupied slot (sum(x) at a slot is its has_candidate indicator, <= 1).
+    #    Unless idle staff are allowed (original model), nobody is assigned to an empty slot.
     for t in time_slots:
         sum_x = [(xi(c, t), 1.0) for c in candidates]
         sum_y = [(yi(s, t), 1.0) for s in staff]
-        add_row(sum_y + [(j, -float(min_staff)) for j, _ in sum_x], 0, inf)
-        add_row(sum_y + [(j, float(S - max_staff)) for j, _ in sum_x], -inf, S)
+        if allow_idle:   # original model: with no candidate the staff count is free (0..|S|)
+            add_row(sum_y + [(j, -float(min_staff)) for j, _ in sum_x], 0, inf)
+            add_row(sum_y + [(j, float(S - max_staff)) for j, _ in sum_x], -inf, S)
+        else:
+            for s in staff:
+                add_row([(yi(s, t), 1.0)] + [(j, -1.0) for j, _ in sum_x], -inf, 0)
+            add_row(sum_y + [(j, -float(min_staff)) for j, _ in sum_x], 0, inf)
+            add_row(sum_y + [(j, -float(max_staff)) for j, _ in sum_x], -inf, 0)
     # 6. required staff: at least one required member on the panel
     for c in candidates:
         req = required_staff.get(c, [])
@@ -314,6 +335,19 @@ def solve_mip(build_kwargs: Dict[str, Any], params: Dict[str, Any]) -> SolveResu
         cost[aux["max_load"]] += fairness_weight
         for s in staff:
             add_row([(yi(s, t), 1.0) for t in time_slots] + [(aux["max_load"], -1.0)], -inf, 0)
+    elif fairness == "balanced":
+        from scheduler.model_builder import BALANCED_RANGE_WEIGHT
+        for s in balanced_lead_set:     # avoidable extra leads (see build_model)
+            for t in time_slots:
+                cost[yi(s, t)] += fairness_weight
+        for gi, group in balanced_groups:
+            hi, lo = aux[("hi", gi)], aux[("lo", gi)]
+            cost[hi] += BALANCED_RANGE_WEIGHT * fairness_weight
+            cost[lo] -= BALANCED_RANGE_WEIGHT * fairness_weight
+            for s in group:
+                cnt = [(yi(s, t), 1.0) for t in time_slots]
+                add_row(cnt + [(hi, -1.0)], -inf, 0)                       # cnt <= hi
+                add_row([(j, -v) for j, v in cnt] + [(lo, 1.0)], -inf, 0)  # lo <= cnt
     elif fairness in ("min_dev", "variance"):
         avg_int = (C * min_staff) // max(S, 1)
         for s in staff:

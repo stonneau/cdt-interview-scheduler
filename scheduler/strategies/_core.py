@@ -87,6 +87,7 @@ def _solve_model(data_store: Dict[str, Any], params: Dict[str, Any], use_prev: b
             candidate_change_penalty_weight=candidate_change_penalty_weight,
             parallel_slot_groups=parallel_slot_groups,
             frozen_slots=frozen_slots,
+            allow_idle_staff=bool(params.get("allow_idle_staff", False)),
         ),
         params,
     )

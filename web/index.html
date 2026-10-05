@@ -62,8 +62,9 @@
       <label>Panel size (max)<input type="number" id="p-max" value="2" min="1" max="10"></label>
       <label>Workload fairness
         <select id="p-fair">
-          <option value="min_dev" selected>Even out (min deviation)</option>
+          <option value="balanced" selected>Balanced: leads among themselves, other staff among themselves</option>
           <option value="min_max">Cap the busiest person</option>
+          <option value="min_dev">Even out (min deviation, original)</option>
           <option value="none">Ignore</option>
         </select></label>
       <label>Time limit (s)<input type="number" id="p-time" value="30" min="1" max="600"></label>

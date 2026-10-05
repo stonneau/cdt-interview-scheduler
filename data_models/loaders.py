@@ -9,8 +9,24 @@ expected by the solver engine.
 from typing import List, Tuple, Dict, Set
 
 from data_models.models import Candidate, Staff, ScheduleAssignment
-import pandas as pd
 from datetime import datetime
+
+
+class _LazyPandas:
+    """Import pandas on first use, so the solver (and the in-browser build,
+    which parses CSV text with :mod:`data_models.csv_text`) works without it."""
+
+    def __getattr__(self, name):
+        import pandas
+        return getattr(pandas, name)
+
+
+pd = _LazyPandas()
+
+
+def _isna(value) -> bool:
+    """``pd.isna`` for scalars, without pandas (None and float NaN)."""
+    return value is None or (isinstance(value, float) and value != value)
 
 
 def _normalize_slot_label(raw) -> str:
@@ -22,7 +38,7 @@ def _normalize_slot_label(raw) -> str:
     :param raw: Raw slot label value (may be numeric, string, or NaN).
     :returns: Normalised slot string, or empty string for NaN/blank input.
     """
-    if pd.isna(raw):
+    if _isna(raw):
         return ""
     s = str(raw).strip()
     if not s:
@@ -55,10 +71,10 @@ def _parse_availability_value(val) -> int:
     :param val: Raw cell value from the availability CSV.
     :returns: ``1`` if available, ``0`` otherwise.
     """
-    if pd.isna(val):
+    if _isna(val):
         return 0
     text = str(val).strip().lower()
-    if text in ("yes"):
+    if text == "yes":
         return 1
     return 0
 

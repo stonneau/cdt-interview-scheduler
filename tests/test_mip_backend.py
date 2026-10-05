@@ -82,6 +82,61 @@ def check_hard_constraints(ds, schedule, staff_assignment, params):
     assert all(len(v) == 1 for v in by_base.values()), "staff in two parallel rooms"
 
 
+def check_solve(kwargs, result):
+    """Independent re-implementation of every hard constraint, on raw x/y values.
+
+    Works on the exact inputs of one solve (so it also covers solves made inside
+    a strategy, with frozen slots, parallel groups, lists of required leads...).
+    Shares no code with either formulation.
+    """
+    cands, slots, staff = kwargs["candidates"], kwargs["time_slots"], kwargs["staff"]
+    avail, savail = kwargs["avail"], kwargs["staff_avail"]
+    mn = kwargs.get("min_staff_per_slot", 2)
+    mx = kwargs.get("max_staff_per_slot", 2)
+    X = {(c, t): result.value_x(c, t) for c in cands for t in slots}
+    Y = {(s, t): result.value_y(s, t) for s in staff for t in slots}
+    assert all(v in (0, 1) for v in X.values()) and all(v in (0, 1) for v in Y.values())
+
+    for c in cands:  # 1. exactly one slot
+        assert sum(X[c, t] for t in slots) == 1, f"{c} not in exactly one slot"
+    for t in slots:  # 2. at most one candidate per slot
+        assert sum(X[c, t] for c in cands) <= 1, f"two candidates in {t}"
+    for (c, t), v in X.items():  # 3. candidate availability (missing = unavailable)
+        assert not v or avail.get(c, {}).get(t, 0) == 1, f"{c} unavailable at {t}"
+    for (s, t), v in Y.items():  # 4. staff availability
+        assert not v or savail.get(s, {}).get(t, 0) == 1, f"{s} unavailable at {t}"
+    for t in slots:  # 5. panel size on occupied slots
+        if sum(X[c, t] for c in cands):
+            n = sum(Y[s, t] for s in staff)
+            assert mn <= n <= mx, f"panel size {n} not in [{mn},{mx}] at {t}"
+    for c in cands:  # 6. at least one required staff member
+        req = kwargs["required_staff"].get(c, [])
+        req = [req] if isinstance(req, str) else req
+        req = [s for s in req if s in staff]
+        if req:
+            for t in slots:
+                if X[c, t]:
+                    assert any(Y[s, t] for s in req), f"no required staff for {c} at {t}"
+    for c, s in kwargs["forbidden_pairs"]:  # 7. forbidden pairs
+        for t in slots:
+            assert not (X[c, t] and Y[s, t]), f"forbidden pair {(c, s)} at {t}"
+    for _base, group in (kwargs.get("parallel_slot_groups") or {}).items():  # 8.
+        for s in staff:
+            assert sum(Y[s, t] for t in group if t in set(slots)) <= 1, f"{s} in two parallel rooms"
+    frozen = set(kwargs.get("frozen_slots") or [])  # 9. frozen slots
+    prev = kwargs.get("prev_schedule") or {}
+    prev_staff = kwargs.get("prev_staff_assignment") or {}
+    for c in cands:
+        if prev.get(c) in frozen and prev.get(c) in slots:
+            assert X[c, prev[c]] == 1, f"frozen candidate {c} moved"
+    for t in frozen & set(slots):
+        for c in cands:
+            if prev.get(c) != t:
+                assert X[c, t] == 0, f"{c} placed in frozen slot {t}"
+        for s in staff:
+            assert Y[s, t] == (1 if s in set(prev_staff.get(t) or []) else 0), f"staff changed in frozen {t}"
+
+
 def run_both(fn, ds, params):
     """Run *fn* with each backend; also capture every underlying solve."""
     out = {}
@@ -132,6 +187,10 @@ def assert_same(res, ds=None, params=None):
         return
     oa, ob = ma["objective_value"], mb["objective_value"]
     assert abs((oa or 0) - (ob or 0)) <= TOL, f"objective cpsat={oa} mip={ob}"
+
+    for kwargs, result in mip_solves:   # independent validator on every MIP solve
+        if result.has_solution:
+            check_solve(kwargs, result)
 
     same_alloc = normalise(sa, ma["staff_assignment"]) == normalise(sb, mb["staff_assignment"])
     if not same_alloc:
@@ -347,3 +406,25 @@ def test_checker_detects_a_wrong_objective():
     status, obj = cpsat_accepts(kwargs, _Patched(res, y={(free, empty): 1}))
     assert status == "FEASIBLE"
     assert obj > res.objective_value + TOL
+
+
+def test_independent_validator_rejects_corrupted_solutions():
+    """check_solve must be able to fail too (same corruptions as the CP-SAT check)."""
+    ds, kwargs, res, sched = _scenario()
+    check_solve(kwargs, res)  # the true solution passes
+    slots, staff = kwargs["time_slots"], kwargs["staff"]
+    c0, c1 = sorted(sched)[:2]
+    t0, t1 = sched[c0], sched[c1]
+    panel0 = [s for s in staff if res.value_y(s, t0)]
+    outsiders = [s for s in staff if s not in panel0 and kwargs["staff_avail"][s].get(t0) == 1]
+    bad = [_Patched(res, x={(c1, t1): 0, (c1, t0): 1}),            # two candidates in a slot
+           _Patched(res, y={(panel0[0], t0): 0}),                   # panel too small
+           _Patched(res, x={(c0, t0): 0})]                          # candidate unscheduled
+    if outsiders:
+        bad.append(_Patched(res, y={(outsiders[0], t0): 1}))        # panel too big
+    unavailable = next((t for t in slots if kwargs["avail"][c0].get(t, 0) != 1), None)
+    if unavailable:
+        bad.append(_Patched(res, x={(c0, t0): 0, (c0, unavailable): 1}))
+    for patched in bad:
+        with pytest.raises(AssertionError):
+            check_solve(kwargs, patched)
